@@ -1,0 +1,318 @@
+#!/bin/bash
+
+# METIS Provisioning Script for Ubuntu
+# This script automates the installation based on the METIS setup instructions.
+
+set -e
+
+# Colors for output
+green='\e[32m'
+red='\e[31m'
+yellow='\e[33m'
+reset='\e[0m'
+
+#Default directory
+METIS_INSTALL_DIR="/opt/metis"
+
+echo -e "${green}[METIS] Starting installation and provisioning...${reset}"
+
+# Database Server Setup -- based on: https://www.mongodb.com/docs/manual/tutorial/install-mongodb-on-ubuntu/
+install_mongodb() {
+  echo -e "${green}[METIS] Installing MongoDB...${reset}"
+
+  sudo apt-get update
+  sudo apt-get install -y gnupg curl git
+
+  # Setup keys/sources
+  if [ ! -f /usr/share/keyrings/mongodb-server-8.0.gpg ]; then
+    curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | \
+      sudo gpg --batch --yes -o /usr/share/keyrings/mongodb-server-8.0.gpg --dearmor
+  else
+    echo "GPG key already exists: /usr/share/keyrings/mongodb-server-8.0.gpg"
+  fi
+
+  echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/ubuntu noble/mongodb-org/8.0 multiverse" | \
+    sudo tee /etc/apt/sources.list.d/mongodb-org-8.0.list > /dev/null
+  sudo apt-get update
+
+  # Install MongoDB Community Server
+  sudo apt-get install -y mongodb-org=8.0.4 mongodb-org-database=8.0.4 mongodb-org-server=8.0.4 mongodb-mongosh mongodb-org-mongos=8.0.4 mongodb-org-tools=8.0.4
+
+  # Prevent automatic updates
+  echo "mongodb-org hold" | sudo dpkg --set-selections
+  echo "mongodb-org-database hold" | sudo dpkg --set-selections
+  echo "mongodb-org-server hold" | sudo dpkg --set-selections
+  echo "mongodb-mongosh hold" | sudo dpkg --set-selections
+  echo "mongodb-org-mongos hold" | sudo dpkg --set-selections
+  echo "mongodb-org-tools hold" | sudo dpkg --set-selections
+
+  echo -e "${green}[METIS] MongoDB installed.${reset}"
+}
+
+configure_mongodb() {
+  echo -e "${green}[METIS] Configuring MongoDB...${reset}"
+  config_file="/etc/mongod.conf"
+
+  # Ensure the MongoDB configuration file exists
+  if [ ! -f "$config_file" ]; then
+    echo -e "${red}[METIS][ERROR] MongoDB configuration file not found: $config_file.${reset}"
+    exit 1
+  fi
+
+  # Update the bindIp to allow external connections
+  if grep -q "^  bindIp: 127.0.0.1" "$config_file"; then
+    sudo sed -i 's/^  bindIp: 127.0.0.1/  bindIp: 0.0.0.0/' "$config_file"
+    echo -e "${green}[METIS] Updated bindIp to 0.0.0.0 in mongod.conf.${reset}"
+  else
+    echo -e "${yellow}[METIS][WARN] bindIp is already set to 0.0.0.0 or missing.${reset}"
+  fi
+
+  # Handle security block configuration
+  if grep -q "^#security:" "$config_file"; then
+    # Uncomment the security block and add authorization
+    sudo sed -i 's/^#security:.*/security:\n  authorization: enabled/' "$config_file"
+    echo -e "${green}[METIS] Uncommented and updated 'security' configuration in mongod.conf.${reset}"
+  elif grep -q "^security:" "$config_file"; then
+    # Ensure authorization is enabled under the existing security block
+    if ! grep -q "^  authorization: enabled" "$config_file"; then
+      sudo sed -i '/^security:/a \  authorization: enabled' "$config_file"
+      echo -e "${green}[METIS] Added 'authorization: enabled' under existing 'security' configuration.${reset}"
+    else
+      echo -e "${yellow}[METIS][WARN] 'authorization: enabled' is already set in mongod.conf.${reset}"
+    fi
+  else
+    # Append the security block if it doesn't exist
+    echo -e "\nsecurity:\n  authorization: enabled" | sudo tee -a "$config_file" > /dev/null
+    echo -e "${green}[METIS] Added 'security' block to mongod.conf.${reset}"
+  fi
+
+  # Restart MongoDB to apply changes
+  echo -e "${green}[METIS] Restarting MongoDB to apply configuration changes...${reset}"
+  sudo systemctl enable mongod
+  sudo systemctl restart mongod
+  echo -e "${green}[METIS] MongoDB configured and restarted.${reset}"
+}
+
+
+check_install_mongodb() {
+  echo -e "${green}[METIS] Checking MongoDB installation...${reset}"
+
+  # Check if data and log directories exist
+  if [[ -d "/var/lib/mongodb" && -d "/var/log/mongodb" ]]; then
+    echo -e "${green}[METIS] MongoDB directories found.${reset}"
+  else
+    echo -e "${red}[METIS] MongoDB directories not found. Installation might be incomplete.${reset}"
+    exit 1
+  fi
+
+  # Verify configuration
+  config_file="/etc/mongod.conf"
+  if grep -q "bindIp: 0.0.0.0" "$config_file"; then
+    echo -e "${green}[METIS] MongoDB configuration verified.${reset}"
+  else
+    echo -e "${red}[METIS] MongoDB configuration update failed. Please check $config_file.${reset}"
+    exit 1
+  fi
+
+  # Check MongoDB binary presence and execute health check
+  if ! command -v mongod &>/dev/null; then
+    echo -e "${red}[METIS] MongoDB binary not found. Installation might be incomplete.${reset}"
+    exit 1
+  fi
+
+  # Check MongoDB version (handles crashes like "Illegal instruction")
+  version_check=$(mongod --version 2>&1 || true)
+  if [[ $version_check == *"Illegal instruction"* ]]; then
+    echo -e "${red}[METIS] MongoDB version check failed: Illegal instruction.${reset}"
+    exit 1
+  elif [[ $version_check == *"db version"* ]]; then
+    echo -e "${green}[METIS] MongoDB version: $(echo "$version_check" | head -n 1).${reset}"
+  else
+    echo -e "${red}[METIS] MongoDB version check failed. Output: $version_check${reset}"
+    exit 1
+  fi
+
+  # Check if MongoDB service is running
+  if sudo systemctl is-active --quiet mongod; then
+    echo -e "${green}[METIS] MongoDB service is running.${reset}"
+  else
+    echo -e "${red}[METIS] MongoDB service is not running. Check logs for errors.${reset}"
+    # exit 1
+  fi
+}
+
+
+setup_mongodb_auth() {
+  echo -e "${green}[METIS] Setting up MongoDB authentication...${reset}"
+
+  # Wait for MongoDB to become fully operational
+  echo -e "${green}[METIS] Waiting for MongoDB to start...${reset}"
+  for i in {1..10}; do
+    if mongosh --eval "db.runCommand({ connectionStatus: 1 })" &>/dev/null; then
+      echo -e "${green}[METIS] MongoDB is operational.${reset}"
+      break
+    fi
+    echo -e "${yellow}[METIS][WARN] MongoDB is not ready. Retrying in 20 seconds...${reset}"
+    sleep 20
+  done
+
+  # Check if admin user already exists
+  echo -e "${green}[METIS] Checking if admin user already exists...${reset}"
+  if mongosh --eval "db.getSiblingDB('admin').getUser('admin')" &>/dev/null; then
+    echo -e "${yellow}[METIS][WARN] Admin user already exists. Skipping creation.${reset}"
+    return
+  fi
+
+  # Create admin user
+  mongosh <<EOF
+use admin
+db.createUser({
+  user: "admin",
+  pwd: "SecureAdminPass123!",
+  roles: [
+    { role: "userAdminAnyDatabase", db: "admin" },
+    { role: "readWriteAnyDatabase", db: "admin" }
+  ]
+})
+EOF
+
+  echo -e "${green}[METIS] Admin user created successfully.${reset}"
+
+  # Restart MongoDB to apply authentication settings
+  echo -e "${green}[METIS] Restarting MongoDB to apply security settings...${reset}"
+  sudo systemctl restart mongod
+  echo -e "${green}[METIS] MongoDB authentication setup completed.${reset}"
+}
+
+create_web_user() {
+  echo -e "${green}[METIS] Creating web server user...${reset}"
+
+  # Wait for MongoDB to become fully operational
+  echo -e "${green}[METIS] Waiting for MongoDB to start...${reset}"
+  for i in {1..10}; do
+    if mongosh -u admin -p "SecureAdminPass123!" --authenticationDatabase admin --eval "db.runCommand({ connectionStatus: 1 })" &>/dev/null; then
+      echo -e "${green}[METIS] MongoDB is operational.${reset}"
+      break
+    fi
+    echo -e "${yellow}[METIS][WARN] MongoDB is not ready for web user creation. Retrying in 10 seconds...${reset}"
+    sleep 20
+  done
+
+  # # Check if web user already exists
+  # echo -e "${green}[METIS] Checking if web server user already exists...${reset}"
+  # if mongosh -u admin -p "SecureAdminPass123!" --authenticationDatabase admin --eval "db.getSiblingDB('metis').getUser('web-server')" &>/dev/null; then
+  #   echo -e "${yellow}[METIS][WARN] Web server user already exists. Skipping creation.${reset}"
+  #   return
+  # fi
+
+  # Create web server user
+  mongosh -u admin -p "SecureAdminPass123!" --authenticationDatabase admin <<EOF
+use metis
+db.createUser({
+  user: "web-server",
+  pwd: "Pass123!",
+  roles: [ { role: "readWrite", db: "metis" } ]
+})
+EOF
+
+  echo -e "${green}[METIS] Web server user created successfully.${reset}"
+}
+
+# Web Server Setup
+install_nodejs() {
+  echo -e "${green}[METIS] Installing NodeJS...${reset}"
+  curl -sL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+  sudo apt install -y nodejs
+  echo -e "${green}[METIS] NodeJS installed.${reset}"
+}
+
+setup_metis() {
+  echo -e "${green}[METIS] Setting up METIS...${reset}"
+
+  if [ -d "$METIS_INSTALL_DIR" ]; then
+    echo -e "${yellow}[METIS][WARN] Existing METIS installation detected in $METIS_INSTALL_DIR. Skipping clone...${reset}"
+
+    # Set directory permissions for all users
+    echo -e "${green}[METIS] Setting permissions for $METIS_INSTALL_DIR...${reset}"
+    sudo chmod -R 755 "$METIS_INSTALL_DIR"
+    sudo chown -R $USER:$USER "$METIS_INSTALL_DIR"
+
+    cd "$METIS_INSTALL_DIR" || exit 1
+  else
+
+    # Set directory permissions for all users
+    sudo mkdir -p "$METIS_INSTALL_DIR"
+    echo -e "${green}[METIS] Setting permissions for $METIS_INSTALL_DIR...${reset}"
+    sudo chmod -R 755 "$METIS_INSTALL_DIR"
+    sudo chown -R $USER:$USER "$METIS_INSTALL_DIR"
+
+    # Check SSH key permissions
+    sudo chmod 600 ~/.ssh/id_ed25519
+
+    # Ensure Git does not prompt for confirmation of the host key
+    export GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no'
+
+    # Clone the repository if it doesn't exist
+    echo -e "${green}[METIS] Cloning METIS repository to $METIS_INSTALL_DIR...${reset}"
+    git clone git@github.com:salient-usafa-cyber-crew/metis.git "$METIS_INSTALL_DIR" || {
+      echo "[ERROR] Failed to clone repository" >&2
+      exit 1
+    }
+
+    cd "$METIS_INSTALL_DIR" || exit 1
+  fi
+
+
+  # Install dependencies and build the application
+  echo -e "${green}[METIS] Installing dependencies and building the application...${reset}"
+  npm install
+  npm run build
+
+  echo -e "${green}[METIS] METIS setup completed.${reset}"
+}
+
+configure_metis_env() {
+  echo -e "${green}[METIS] Configuring METIS environment...${reset}"
+  cat <<EOF > "$METIS_INSTALL_DIR/environment.json"
+{
+  "port": 8080,
+  "mongoDB": "metis",
+  "mongoHost": "localhost",
+  "mongoPort": 27017,
+  "mongoUsername": "web-server",
+  "mongoPassword": "Pass123!",
+  "fileStoreDir": "./files/store",
+  "httpRateLimit": 25,
+  "wsRateLimit": 25
+}
+EOF
+  echo -e "${green}[METIS] Environment configuration saved.${reset}"
+}
+
+run_metis() {
+  echo -e "${green}[METIS] Starting METIS...${reset}"
+  cd "$METIS_INSTALL_DIR" || exit 1
+  npm run prod
+}
+
+# Provision steps/execution
+# =========================
+install_mongodb
+configure_mongodb
+check_install_mongodb
+setup_mongodb_auth
+create_web_user
+install_nodejs
+setup_metis
+configure_metis_env
+run_metis
+
+echo -e "${green}[METIS] Installation and provisioning completed!${reset}"
+
+
+#NOTES
+# mongod will NOT start -- Q: Are you using a VM?
+# Symptom: `mongod.service: Main process exited, code=dumped, status=4/ILL` <--- AVX flag and Windows "CPU protections" block passthrough of the VM to the CPU hardware...
+
+#Consideration -- security/lockdown of code
+# --Starting w/ disabled features: mongosh --nodb --eval "disableTelemetry()"
