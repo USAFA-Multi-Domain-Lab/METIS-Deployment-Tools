@@ -1,1 +1,3 @@
 # METIS-Deployment-Tools
+
+ALL RIGHTS RESERVED
