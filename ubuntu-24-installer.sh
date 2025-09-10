@@ -273,26 +273,58 @@ setup_metis() {
 
 configure_metis_env() {
   echo -e "${green}[METIS] Configuring METIS environment...${reset}"
-  cat <<EOF > "$METIS_INSTALL_DIR/environment.json"
-{
-  "port": 8080,
-  "mongoDB": "metis",
-  "mongoHost": "localhost",
-  "mongoPort": 27017,
-  "mongoUsername": "web-server",
-  "mongoPassword": "Pass123!",
-  "fileStoreDir": "./files/store",
-  "httpRateLimit": 25,
-  "wsRateLimit": 25
-}
+  CONFIG_DIR="$METIS_INSTALL_DIR/config"
+  PROD_ENV_FILE="$CONFIG_DIR/prod.env"
+  cat <<EOF > "$PROD_ENV_FILE"
+MONGO_USERNAME=web-server
+MONGO_PASSWORD=Pass123!
 EOF
-  echo -e "${green}[METIS] Environment configuration saved.${reset}"
+  echo -e "${green}[METIS] Environment configuration saved to $PROD_ENV_FILE.${reset}"
 }
 
 run_metis() {
   echo -e "${green}[METIS] Starting METIS...${reset}"
   cd "$METIS_INSTALL_DIR" || exit 1
   npm run prod
+}
+
+create_metis_service() {
+  echo -e "${green}[METIS] Creating systemd service for METIS...${reset}"
+  sudo bash -c "cat > /etc/systemd/system/metis.service" <<EOL
+[Unit]
+Description=METIS Web Service
+After=network.target
+
+[Service]
+Type=simple
+User=$USER
+WorkingDirectory=$METIS_INSTALL_DIR
+ExecStart=/usr/bin/npm run prod
+Restart=on-failure
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
+EOL
+  sudo systemctl daemon-reload
+  sudo systemctl enable metis.service
+  echo -e "${green}[METIS] METIS service created and enabled to start on boot.${reset}"
+}
+
+start_metis_service() {
+  echo -e "${green}[METIS] Starting METIS service...${reset}"
+  sudo systemctl start metis.service
+  sudo systemctl status metis.service --no-pager
+}
+
+stop_metis_service() {
+  echo -e "${green}[METIS] Stopping METIS service...${reset}"
+  sudo systemctl stop metis.service
+  sudo systemctl status metis.service --no-pager
+}
+
+status_metis_service() {
+  sudo systemctl status metis.service --no-pager
 }
 
 # Provision steps/execution
@@ -305,7 +337,8 @@ create_web_user
 install_nodejs
 setup_metis
 configure_metis_env
-run_metis
+create_metis_service
+start_metis_service
 
 echo -e "${green}[METIS] Installation and provisioning completed!${reset}"
 
