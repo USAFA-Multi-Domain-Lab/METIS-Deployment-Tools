@@ -147,13 +147,18 @@ setup_mongodb_auth() {
 
   # Wait for MongoDB to become fully operational
   echo -e "${green}[METIS] Waiting for MongoDB to start...${reset}"
-  for i in {1..10}; do
+  for i in {1..5}; do
+    sleep 3
     if mongosh --eval "db.runCommand({ connectionStatus: 1 })" &>/dev/null; then
       echo -e "${green}[METIS] MongoDB is operational.${reset}"
       break
     fi
-    echo -e "${yellow}[METIS][WARN] MongoDB is not ready. Retrying in 20 seconds...${reset}"
-    sleep 20
+    if [ $i -eq 5 ]; then
+      echo -e "${red}[METIS][ERROR] MongoDB failed to start. Exiting.${reset}"
+      exit 1
+    fi
+    echo -e "${yellow}[METIS][WARN] MongoDB is not ready. Retrying in 10 seconds...${reset}"
+    sleep 7 # + 3 next iteration = 10 seconds.
   done
 
   # Check if admin user already exists
@@ -189,13 +194,18 @@ create_web_user() {
 
   # Wait for MongoDB to become fully operational
   echo -e "${green}[METIS] Waiting for MongoDB to start...${reset}"
-  for i in {1..10}; do
+  for i in {1..5}; do
+    sleep 3
     if mongosh -u admin -p "SecureAdminPass123!" --authenticationDatabase admin --eval "db.runCommand({ connectionStatus: 1 })" &>/dev/null; then
       echo -e "${green}[METIS] MongoDB is operational.${reset}"
       break
     fi
+    if [ $i -eq 5 ]; then
+      echo -e "${red}[METIS][ERROR] MongoDB failed to start. Exiting.${reset}"
+      exit 1
+    fi
     echo -e "${yellow}[METIS][WARN] MongoDB is not ready for web user creation. Retrying in 10 seconds...${reset}"
-    sleep 20
+    sleep 7 # + 3 next iteration = 10 seconds.
   done
 
   # # Check if web user already exists
