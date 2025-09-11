@@ -230,6 +230,7 @@ create_web_user() {
   # # Check if web user already exists
   echo -e "${green}[METIS] Checking if web server user already exists...${reset}"
   if mongosh -u "$ADMIN_USER" -p "$ADMIN_PASS" --authenticationDatabase admin --eval "db.getSiblingDB('metis').getUser('$METIS_USER')" &>/dev/null; then
+    mongosh -u "$ADMIN_USER" -p "$ADMIN_PASS" --authenticationDatabase admin --eval "db.getSiblingDB('metis').getUser('$METIS_USER')"
     echo -e "${yellow}[METIS][WARN] Web server user already exists. Skipping creation.${reset}"
     return
   fi
