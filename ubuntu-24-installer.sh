@@ -16,6 +16,25 @@ METIS_INSTALL_DIR="/opt/metis"
 
 echo -e "${green}[METIS] Starting installation and provisioning...${reset}"
 
+# Generate random usernames and passwords
+ADMIN_USER="admin_$(openssl rand -hex 4)"
+ADMIN_PASS="$(openssl rand -base64 16)"
+METIS_USER="metis_$(openssl rand -hex 4)"
+METIS_PASS="$(openssl rand -base64 16)"
+CREDENTIALS_FILE="/root/metis-credentials.txt"
+
+# Save credentials to a root-only file
+save_credentials() {
+  sudo bash -c "cat > $CREDENTIALS_FILE" <<EOF
+MongoDB Admin Username: $ADMIN_USER
+MongoDB Admin Password: $ADMIN_PASS
+MongoDB Web Username: $METIS_USER
+MongoDB Web Password: $METIS_PASS
+EOF
+  sudo chmod 600 $CREDENTIALS_FILE
+  echo -e "${green}[METIS] Credentials saved to $CREDENTIALS_FILE (root only).${reset}"
+}
+
 # Database Server Setup -- based on: https://www.mongodb.com/docs/manual/tutorial/install-mongodb-on-ubuntu/
 install_mongodb() {
   echo -e "${green}[METIS] Installing MongoDB...${reset}"
@@ -172,8 +191,8 @@ setup_mongodb_auth() {
   mongosh <<EOF
 use admin
 db.createUser({
-  user: "admin",
-  pwd: "SecureAdminPass123!",
+  user: "$ADMIN_USER",
+  pwd: "$ADMIN_PASS",
   roles: [
     { role: "userAdminAnyDatabase", db: "admin" },
     { role: "readWriteAnyDatabase", db: "admin" }
@@ -216,11 +235,11 @@ create_web_user() {
   # fi
 
   # Create web server user
-  mongosh -u admin -p "SecureAdminPass123!" --authenticationDatabase admin <<EOF
+  mongosh -u "$ADMIN_USER" -p "$ADMIN_PASS" --authenticationDatabase admin <<EOF
 use metis
 db.createUser({
-  user: "web-server",
-  pwd: "Pass123!",
+  user: "$METIS_USER",
+  pwd: "$METIS_PASS",
   roles: [ { role: "readWrite", db: "metis" } ]
 })
 EOF
@@ -290,9 +309,10 @@ configure_metis_env() {
   CONFIG_DIR="$METIS_INSTALL_DIR/config"
   PROD_ENV_FILE="$CONFIG_DIR/prod.env"
   cat <<EOF > "$PROD_ENV_FILE"
-MONGO_USERNAME=web-server
-MONGO_PASSWORD=Pass123!
+MONGO_USERNAME=$METIS_USER
+MONGO_PASSWORD=$METIS_PASS
 EOF
+  chmod 600 "$PROD_ENV_FILE"
   echo -e "${green}[METIS] Environment configuration saved to $PROD_ENV_FILE.${reset}"
 }
 
@@ -351,6 +371,7 @@ create_web_user
 install_nodejs
 setup_metis
 configure_metis_env
+save_credentials
 create_metis_service
 start_metis_service
 
