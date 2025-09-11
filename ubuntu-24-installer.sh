@@ -16,11 +16,11 @@ METIS_INSTALL_DIR="/opt/metis"
 
 echo -e "${green}[METIS] Starting installation and provisioning...${reset}"
 
-# Generate random usernames and passwords
-ADMIN_USER="admin_$(openssl rand -hex 4)"
-ADMIN_PASS="$(openssl rand -base64 16)"
-METIS_USER="metis_$(openssl rand -hex 4)"
-METIS_PASS="$(openssl rand -base64 16)"
+# Generate random usernames and passwords (exclude double quotes)
+ADMIN_USER="admin_$(openssl rand -hex 4 | tr -d '"')"
+ADMIN_PASS="$(openssl rand -base64 16 | tr -d '"')"
+METIS_USER="metis_$(openssl rand -hex 4 | tr -d '"')"
+METIS_PASS="$(openssl rand -base64 16 | tr -d '"')"
 CREDENTIALS_FILE="/root/metis-credentials.txt"
 
 # Save credentials to a root-only file
@@ -182,7 +182,7 @@ setup_mongodb_auth() {
 
   # Check if admin user already exists
   echo -e "${green}[METIS] Checking if admin user already exists...${reset}"
-  if mongosh --eval "db.getSiblingDB('admin').getUser('admin')" &>/dev/null; then
+  if mongosh --eval "db.getSiblingDB('admin').getUser('$ADMIN_USER')" &>/dev/null; then
     echo -e "${yellow}[METIS][WARN] Admin user already exists. Skipping creation.${reset}"
     return
   fi
@@ -309,8 +309,8 @@ configure_metis_env() {
   CONFIG_DIR="$METIS_INSTALL_DIR/config"
   PROD_ENV_FILE="$CONFIG_DIR/prod.env"
   cat <<EOF > "$PROD_ENV_FILE"
-MONGO_USERNAME=$METIS_USER
-MONGO_PASSWORD=$METIS_PASS
+MONGO_USERNAME="$METIS_USER"
+MONGO_PASSWORD="$METIS_PASS"
 EOF
   chmod 600 "$PROD_ENV_FILE"
   echo -e "${green}[METIS] Environment configuration saved to $PROD_ENV_FILE.${reset}"
