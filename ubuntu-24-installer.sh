@@ -215,7 +215,7 @@ create_web_user() {
   echo -e "${green}[METIS] Waiting for MongoDB to start...${reset}"
   for i in {1..5}; do
     sleep 3
-    if mongosh -u admin -p "SecureAdminPass123!" --authenticationDatabase admin --eval "db.runCommand({ connectionStatus: 1 })" &>/dev/null; then
+    if mongosh -u "$ADMIN_USER" -p "$ADMIN_PASS" --authenticationDatabase admin --eval "db.runCommand({ connectionStatus: 1 })" &>/dev/null; then
       echo -e "${green}[METIS] MongoDB is operational.${reset}"
       break
     fi
@@ -228,11 +228,11 @@ create_web_user() {
   done
 
   # # Check if web user already exists
-  # echo -e "${green}[METIS] Checking if web server user already exists...${reset}"
-  # if mongosh -u admin -p "SecureAdminPass123!" --authenticationDatabase admin --eval "db.getSiblingDB('metis').getUser('web-server')" &>/dev/null; then
-  #   echo -e "${yellow}[METIS][WARN] Web server user already exists. Skipping creation.${reset}"
-  #   return
-  # fi
+  echo -e "${green}[METIS] Checking if web server user already exists...${reset}"
+  if mongosh -u "$ADMIN_USER" -p "$ADMIN_PASS" --authenticationDatabase admin --eval "db.getSiblingDB('metis').getUser('$METIS_USER')" &>/dev/null; then
+    echo -e "${yellow}[METIS][WARN] Web server user already exists. Skipping creation.${reset}"
+    return
+  fi
 
   # Create web server user
   mongosh -u "$ADMIN_USER" -p "$ADMIN_PASS" --authenticationDatabase admin <<EOF
