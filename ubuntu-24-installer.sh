@@ -36,6 +36,12 @@ fi
 
 # Save credentials to a root-only file
 save_credentials() {
+  # Skip saving if credentials already exist.
+  if [ "$CREDENTIALS_EXIST" = true ]; then
+    echo -e "${yellow}[METIS] Credentials already exist. Skipping save.${reset}"
+    return
+  fi
+
   sudo bash -c "cat > $CREDENTIALS_FILE" <<EOF
 MongoDB Admin Username: $ADMIN_USER
 MongoDB Admin Password: $ADMIN_PASS
@@ -314,6 +320,12 @@ setup_metis() {
     cd "$METIS_INSTALL_DIR" || exit 1
   fi
 
+  # Make cli.sh executable and symlink to /usr/local/bin/metis
+  if [ -f "$METIS_INSTALL_DIR/cli.sh" ]; then
+    sudo chmod +x "$METIS_INSTALL_DIR/cli.sh"
+    sudo ln -sf "$METIS_INSTALL_DIR/cli.sh" /usr/local/bin/metis
+    echo -e "${green}[METIS] CLI installed as 'metis' in PATH.${reset}"
+  fi
 
   # Install dependencies and build the application
   echo -e "${green}[METIS] Installing dependencies and building the application...${reset}"
