@@ -180,15 +180,8 @@ setup_mongodb_auth() {
     sleep 7 # + 3 next iteration = 10 seconds.
   done
 
-  # Check if admin user already exists
-  echo -e "${green}[METIS] Checking if admin user already exists...${reset}"
-  if mongosh --eval "db.getSiblingDB('admin').getUser('$ADMIN_USER')" &>/dev/null; then
-    echo -e "${yellow}[METIS][WARN] Admin user already exists. Skipping creation.${reset}"
-    return
-  fi
-
-  # Create admin user
-  mongosh <<EOF
+  # Always attempt to create admin user (username is random)
+  create_admin_output=$(mongosh <<EOF
 use admin
 db.createUser({
   user: "$ADMIN_USER",
@@ -199,6 +192,12 @@ db.createUser({
   ]
 })
 EOF
+)
+  if [[ "$create_admin_output" == *"MongoServerError"* ]]; then
+    echo -e "${red}[METIS][ERROR] Failed to create admin user. MongoDB error detected:${reset}"
+    echo "$create_admin_output"
+    exit 1
+  fi
 
   echo -e "${green}[METIS] Admin user created successfully.${reset}"
 
@@ -227,17 +226,8 @@ create_web_user() {
     sleep 7 # + 3 next iteration = 10 seconds.
   done
 
-  # # Check if web user already exists
-  echo -e "${green}[METIS] Checking if web server user already exists...${reset}"
-  user_check_output=$(mongosh -u "$ADMIN_USER" -p "$ADMIN_PASS" --authenticationDatabase admin --eval "db.getSiblingDB('metis').getUser('$METIS_USER')")
-  if [[ "$user_check_output" != "null" ]]; then
-    echo "$user_check_output"
-    echo -e "${yellow}[METIS][WARN] Web server user already exists. Skipping creation.${reset}"
-    return
-  fi
-
-  # Create web server user
-  mongosh -u "$ADMIN_USER" -p "$ADMIN_PASS" --authenticationDatabase admin <<EOF
+  # Always attempt to create web server user (username is random)
+  create_web_output=$(mongosh -u "$ADMIN_USER" -p "$ADMIN_PASS" --authenticationDatabase admin <<EOF
 use metis
 db.createUser({
   user: "$METIS_USER",
@@ -245,6 +235,12 @@ db.createUser({
   roles: [ { role: "readWrite", db: "metis" } ]
 })
 EOF
+)
+  if [[ "$create_web_output" == *"MongoServerError"* ]]; then
+    echo -e "${red}[METIS][ERROR] Failed to create web server user. MongoDB error detected:${reset}"
+    echo "$create_web_output"
+    exit 1
+  fi
 
   echo -e "${green}[METIS] Web server user created successfully.${reset}"
 }
