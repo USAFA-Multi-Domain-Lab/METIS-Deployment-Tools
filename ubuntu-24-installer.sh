@@ -26,7 +26,7 @@ CREDENTIALS_EXIST=false
 
 # There's a possibility of MongoDB already being installed
 # with auth enabled. This checks for that condition.
-auth_check=$(mongosh --quiet --eval "db.getSiblingDB('admin').system.users.find()" 2>/dev/null)
+auth_check=$( (mongosh --quiet --eval "db.getSiblingDB('admin').system.users.find()" 2>&1) )
 
 # Load or generate credentials
 if [ -f "$CREDENTIALS_FILE" ]; then
