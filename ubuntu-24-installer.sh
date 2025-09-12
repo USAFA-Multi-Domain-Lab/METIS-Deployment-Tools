@@ -32,6 +32,14 @@ if [ -f "$CREDENTIALS_FILE" ]; then
   METIS_USER=$(grep 'MongoDB Web Username:' "$CREDENTIALS_FILE" | awk -F': ' '{print $2}')
   METIS_PASS=$(grep 'MongoDB Web Password:' "$CREDENTIALS_FILE" | awk -F': ' '{print $2}')
   CREDENTIALS_EXIST=true
+else
+  # Check if an admin user already exists in MongoDB
+  admin_exists=$(mongosh --quiet --eval "db.getSiblingDB('admin').system.users.find({roles: { \$elemMatch: { role: 'userAdminAnyDatabase', db: 'admin' } } }).count()" 2>/dev/null)
+  if [ "$admin_exists" != "0" ] && [ "$admin_exists" != "" ]; then
+    echo -e "${yellow}[METIS] An existing MongoDB instance was found with an existing admin user. In order to install METIS, a dedicated DB user is needed in order for the web server to connect to the database. Please enter the credentials for the existing admin user.${reset}"
+    read -p "Enter existing MongoDB admin username: " ADMIN_USER
+    read -s -p "Enter existing MongoDB admin password: " ADMIN_PASS
+  fi
 fi
 
 # Save credentials to a root-only file
