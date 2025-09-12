@@ -21,7 +21,18 @@ ADMIN_USER="admin_$(openssl rand -hex 4 | tr -d '"')"
 ADMIN_PASS="$(openssl rand -base64 16 | tr -d '"')"
 METIS_USER="metis_$(openssl rand -hex 4 | tr -d '"')"
 METIS_PASS="$(openssl rand -base64 16 | tr -d '"')"
-CREDENTIALS_FILE="/root/metis-credentials.txt"
+CREDENTIALS_FILE="/root/.metis-credentials.txt"
+CREDENTIALS_EXIST=false
+
+# Load or generate credentials
+if [ -f "$CREDENTIALS_FILE" ]; then
+  echo -e "${yellow}[METIS] Existing credentials found at $CREDENTIALS_FILE. Loading...${reset}"
+  ADMIN_USER=$(grep 'MongoDB Admin Username:' "$CREDENTIALS_FILE" | awk -F': ' '{print $2}')
+  ADMIN_PASS=$(grep 'MongoDB Admin Password:' "$CREDENTIALS_FILE" | awk -F': ' '{print $2}')
+  METIS_USER=$(grep 'MongoDB Web Username:' "$CREDENTIALS_FILE" | awk -F': ' '{print $2}')
+  METIS_PASS=$(grep 'MongoDB Web Password:' "$CREDENTIALS_FILE" | awk -F': ' '{print $2}')
+  CREDENTIALS_EXIST=true
+fi
 
 # Save credentials to a root-only file
 save_credentials() {
@@ -180,6 +191,11 @@ setup_mongodb_auth() {
     sleep 7 # + 3 next iteration = 10 seconds.
   done
 
+  if [ "$CREDENTIALS_EXIST" = true ]; then
+    echo -e "${yellow}[METIS] Skipping admin user creation; admin user already exist.${reset}"
+    return
+  fi
+
   # Always attempt to create admin user (username is random)
   create_admin_output=$(mongosh <<EOF
 use admin
@@ -225,6 +241,11 @@ create_web_user() {
     echo -e "${yellow}[METIS][WARN] MongoDB is not ready for web user creation. Retrying in 10 seconds...${reset}"
     sleep 7 # + 3 next iteration = 10 seconds.
   done
+
+  if [ "$CREDENTIALS_EXIST" = true ]; then
+    echo -e "${yellow}[METIS] Skipping web server user creation; web server user already exist.${reset}"
+    return
+  fi
 
   # Always attempt to create web server user (username is random)
   create_web_output=$(mongosh -u "$ADMIN_USER" -p "$ADMIN_PASS" --authenticationDatabase admin <<EOF
