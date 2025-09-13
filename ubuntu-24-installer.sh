@@ -23,12 +23,11 @@ METIS_USER="metis_$(openssl rand -hex 4 | tr -d '"')"
 METIS_PASS="$(openssl rand -base64 16 | tr -d '"')"
 CREDENTIALS_FILE="/root/.metis-credentials.txt"
 CREDENTIALS_EXIST=false
+THIRD_PARTY_ADMIN=false
 
 # There's a possibility of MongoDB already being installed
 # with auth enabled. This checks for that condition.
 auth_check="$(mongosh --quiet --eval "db.getSiblingDB('admin').system.users.find()" 2>&1 || true)"
-
-echo $auth_check
 
 # Load or generate credentials
 if [ -f "$CREDENTIALS_FILE" ]; then
@@ -45,6 +44,7 @@ elif [[ "$auth_check" == *MongoServerError* ]]; then
   echo -e "${yellow}[METIS] An existing MongoDB instance with auth enabled. In order to install METIS, a dedicated DB user is needed in order for the web server to connect to the database. Please enter the credentials for the existing admin user to proceed.${reset}"
   read -p "Enter existing MongoDB admin username: " ADMIN_USER
   read -s -p "Enter existing MongoDB admin password: " ADMIN_PASS
+  THIRD_PARTY_ADMIN=true
 fi
 
 
@@ -212,7 +212,7 @@ setup_mongodb_auth() {
     sleep 7 # + 3 next iteration = 10 seconds.
   done
 
-  if [ "$CREDENTIALS_EXIST" = true ]; then
+  if [ "$CREDENTIALS_EXIST" = true ] || [ "$THIRD_PARTY_ADMIN" = true ]; then
     echo -e "${yellow}[METIS] Skipping admin user creation; admin user already exist.${reset}"
     return
   fi
