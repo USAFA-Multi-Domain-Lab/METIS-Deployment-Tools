@@ -20,6 +20,41 @@ THIRD_PARTY_ADMIN=false
 
 echo -e "${green}[METIS] Starting installation and provisioning...${reset}"
 
+# Generates random usernames and passwords
+# for the MongoDB admin and web users.
+generate_credentials() {
+  echo -e "${green}[METIS] Generating MongoDB credentials...${reset}"
+
+  # Generate random usernames and passwords (exclude double quotes)
+  ADMIN_USER="admin_$(openssl rand -hex 4 | tr -d '"')"
+  ADMIN_PASS="$(openssl rand -base64 16 | tr -d '"')"
+  METIS_USER="metis_$(openssl rand -hex 4 | tr -d '"')"
+  METIS_PASS="$(openssl rand -base64 16 | tr -d '"')"
+
+  # There's a possibility of MongoDB already being installed
+  # with auth enabled. This checks for that condition.
+  auth_check="$(mongosh --quiet --eval "db.getSiblingDB('admin').system.users.find()" 2>&1 || true)"
+
+  # Override randomly generated credentials, if a 
+  # METIS credentials file already exists.
+  if [ -f "$CREDENTIALS_FILE" ]; then
+    echo -e "${yellow}[METIS] Existing credentials found at $CREDENTIALS_FILE. Loading...${reset}"
+    ADMIN_USER=$(grep 'MongoDB Admin Username:' "$CREDENTIALS_FILE" | awk -F': ' '{print $2}')
+    ADMIN_PASS=$(grep 'MongoDB Admin Password:' "$CREDENTIALS_FILE" | awk -F': ' '{print $2}')
+    METIS_USER=$(grep 'MongoDB Web Username:' "$CREDENTIALS_FILE" | awk -F': ' '{print $2}')
+    METIS_PASS=$(grep 'MongoDB Web Password:' "$CREDENTIALS_FILE" | awk -F': ' '{print $2}')
+    CREDENTIALS_EXIST=true
+  # Handle case where MongoDB was installed prior
+  # to METIS installation.
+  elif [[ "$auth_check" == *MongoServerError* ]]; then
+    # Check if an admin user already exists in MongoDB
+    echo -e "${yellow}[METIS] An existing MongoDB instance with auth enabled. In order to install METIS, a dedicated DB user is needed in order for the web server to connect to the database. Please enter the credentials for the existing admin user to proceed.${reset}"
+    read -p "Enter existing MongoDB admin username: " ADMIN_USER
+    read -s -p "Enter existing MongoDB admin password: " ADMIN_PASS
+    THIRD_PARTY_ADMIN=true
+  fi
+}
+
 # Database Server Setup -- based on: https://www.mongodb.com/docs/manual/tutorial/install-mongodb-on-ubuntu/
 install_mongodb() {
   echo -e "${green}[METIS] Installing MongoDB...${reset}"
@@ -143,42 +178,6 @@ check_install_mongodb() {
     exit 1
   fi
 }
-
-# Generates random usernames and passwords
-# for the MongoDB admin and web users.
-generate_credentials() {
-  echo -e "${green}[METIS] Generating MongoDB credentials...${reset}"
-
-  # Generate random usernames and passwords (exclude double quotes)
-  ADMIN_USER="admin_$(openssl rand -hex 4 | tr -d '"')"
-  ADMIN_PASS="$(openssl rand -base64 16 | tr -d '"')"
-  METIS_USER="metis_$(openssl rand -hex 4 | tr -d '"')"
-  METIS_PASS="$(openssl rand -base64 16 | tr -d '"')"
-
-  # There's a possibility of MongoDB already being installed
-  # with auth enabled. This checks for that condition.
-  auth_check="$(mongosh --quiet --eval "db.getSiblingDB('admin').system.users.find()" 2>&1 || true)"
-
-  # Override randomly generated credentials, if a 
-  # METIS credentials file already exists.
-  if [ -f "$CREDENTIALS_FILE" ]; then
-    echo -e "${yellow}[METIS] Existing credentials found at $CREDENTIALS_FILE. Loading...${reset}"
-    ADMIN_USER=$(grep 'MongoDB Admin Username:' "$CREDENTIALS_FILE" | awk -F': ' '{print $2}')
-    ADMIN_PASS=$(grep 'MongoDB Admin Password:' "$CREDENTIALS_FILE" | awk -F': ' '{print $2}')
-    METIS_USER=$(grep 'MongoDB Web Username:' "$CREDENTIALS_FILE" | awk -F': ' '{print $2}')
-    METIS_PASS=$(grep 'MongoDB Web Password:' "$CREDENTIALS_FILE" | awk -F': ' '{print $2}')
-    CREDENTIALS_EXIST=true
-  # Handle case where MongoDB was installed prior
-  # to METIS installation.
-  elif [[ "$auth_check" == *MongoServerError* ]]; then
-    # Check if an admin user already exists in MongoDB
-    echo -e "${yellow}[METIS] An existing MongoDB instance with auth enabled. In order to install METIS, a dedicated DB user is needed in order for the web server to connect to the database. Please enter the credentials for the existing admin user to proceed.${reset}"
-    read -p "Enter existing MongoDB admin username: " ADMIN_USER
-    read -s -p "Enter existing MongoDB admin password: " ADMIN_PASS
-    THIRD_PARTY_ADMIN=true
-  fi
-}
-
 
 setup_mongodb_auth() {
   echo -e "${green}[METIS] Setting up MongoDB authentication...${reset}"
@@ -414,10 +413,10 @@ status_metis_service() {
 
 # Provision steps/execution
 # =========================
+generate_credentials
 install_mongodb
 configure_mongodb
 check_install_mongodb
-generate_credentials
 setup_mongodb_auth
 create_web_user
 install_nodejs
