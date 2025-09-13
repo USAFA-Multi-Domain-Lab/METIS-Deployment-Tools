@@ -147,6 +147,8 @@ check_install_mongodb() {
 # Generates random usernames and passwords
 # for the MongoDB admin and web users.
 generate_credentials() {
+  echo -e "${green}[METIS] Generating MongoDB credentials...${reset}"
+
   # Generate random usernames and passwords (exclude double quotes)
   ADMIN_USER="admin_$(openssl rand -hex 4 | tr -d '"')"
   ADMIN_PASS="$(openssl rand -base64 16 | tr -d '"')"
