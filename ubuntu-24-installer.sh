@@ -26,7 +26,9 @@ CREDENTIALS_EXIST=false
 
 # There's a possibility of MongoDB already being installed
 # with auth enabled. This checks for that condition.
-auth_check="$(mongosh --quiet --eval "db.getSiblingDB('admin').system.users.find()" 2>/dev/null || true)"
+auth_check="$(mongosh --quiet --eval "db.getSiblingDB('admin').system.users.find()" 2>&1 || true)"
+
+echo $auth_check
 
 # Load or generate credentials
 if [ -f "$CREDENTIALS_FILE" ]; then
@@ -44,6 +46,8 @@ elif [[ "$auth_check" == *MongoServerError* ]]; then
   read -p "Enter existing MongoDB admin username: " ADMIN_USER
   read -s -p "Enter existing MongoDB admin password: " ADMIN_PASS
 fi
+
+
 
 # Save credentials to a root-only file
 save_credentials() {
@@ -184,7 +188,7 @@ check_install_mongodb() {
     echo -e "${green}[METIS] MongoDB service is running.${reset}"
   else
     echo -e "${red}[METIS] MongoDB service is not running. Check logs for errors.${reset}"
-    # exit 1
+    exit 1
   fi
 }
 
