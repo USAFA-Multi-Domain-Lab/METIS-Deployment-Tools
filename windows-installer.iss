@@ -47,7 +47,8 @@ Source: "scripts\create-service.ps1"; DestDir: "{tmp}"; Flags: deleteafterinstal
 Source: "scripts\install-prerequisites.ps1"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 ; NSSM for service creation
-Source: "bin\nssm.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
+; NOTE: We no longer bundle NSSM to avoid compile-time dependency on a local file.
+;       The create-service.ps1 script will download NSSM at install time if not present.
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: """{app}\server.js"""; WorkingDir: "{app}"
