@@ -71,7 +71,7 @@ Filename: "sc.exe"; Parameters: "delete METIS"; RunOnceId: "DeleteService"; Flag
 
 [Code]
 var
-  PrereqPage: TInputQueryWizardPage;
+  PrereqPage: TInputOptionWizardPage;
   MongoUserPage: TInputQueryWizardPage;
   
 // Helper: convert common truthy strings to boolean
@@ -106,27 +106,18 @@ end;
 
 procedure InitializeWizard;
 begin
-  // Create a page for prerequisite options
-  PrereqPage := CreateInputQueryPage(wpWelcome,
-    'Prerequisites Check', 'Checking for required software',
+  // Create a page for prerequisite options as checkboxes
+  PrereqPage := CreateInputOptionPage(wpWelcome,
+    'Prerequisites', 'Select required software',
     'METIS requires Node.js and MongoDB. The installer can download and install these for you.');
-    
-  // Use text inputs to simulate checkboxes: user can type True/False or Yes/No
-  // Do not mask these inputs
-  PrereqPage.Add('Install Node.js (if not present) [True/False]:', False);
-  PrereqPage.Add('Install MongoDB (if not present) [True/False]:', False);
-  
-  // Set default values based on what's already installed
-  if not IsNodeJSInstalled() then
-    PrereqPage.Values[0] := 'True'
-  else
-    PrereqPage.Values[0] := 'False';
 
-  if not IsMongoDBInstalled() then
-    PrereqPage.Values[1] := 'True'
-  else
-    PrereqPage.Values[1] := 'False';
-  
+  PrereqPage.Add('Install Node.js (if not present)');
+  PrereqPage.Add('Install MongoDB (if not present)');
+
+  // Set default selections based on what's already installed
+  PrereqPage.Values[0] := not IsNodeJSInstalled();
+  PrereqPage.Values[1] := not IsMongoDBInstalled();
+
   // Create MongoDB user configuration page
   MongoUserPage := CreateInputQueryPage(PrereqPage.ID,
     'MongoDB Configuration', 'Database User Setup',
@@ -151,7 +142,8 @@ var
   ConfigFile: String;
   AdminUser, AdminPass, MetisUser, MetisPass: String;
 begin
-  if CurStep = ssPostInstall then
+  // Write configuration before [Run] executes
+  if CurStep = ssInstall then
   begin
     // Save user preferences for PowerShell scripts
     ConfigFile := ExpandConstant('{tmp}\installer-config.txt');
@@ -163,8 +155,8 @@ begin
     MetisPass := MongoUserPage.Values[3];
     
     // Save configuration
-  SaveStringToFile(ConfigFile, 'INSTALL_NODEJS=' + BoolTo01(StrToBoolEx(PrereqPage.Values[0])) + #13#10, False);
-  SaveStringToFile(ConfigFile, 'INSTALL_MONGODB=' + BoolTo01(StrToBoolEx(PrereqPage.Values[1])) + #13#10, True);
+    SaveStringToFile(ConfigFile, 'INSTALL_NODEJS=' + BoolTo01(PrereqPage.Values[0]) + #13#10, False);
+    SaveStringToFile(ConfigFile, 'INSTALL_MONGODB=' + BoolTo01(PrereqPage.Values[1]) + #13#10, True);
     SaveStringToFile(ConfigFile, 'MONGO_ADMIN_USER=' + AdminUser + #13#10, True);
     SaveStringToFile(ConfigFile, 'MONGO_ADMIN_PASS=' + AdminPass + #13#10, True);
     SaveStringToFile(ConfigFile, 'METIS_DB_USER=' + MetisUser + #13#10, True);
