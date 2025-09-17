@@ -74,6 +74,22 @@ var
   PrereqPage: TInputQueryWizardPage;
   MongoUserPage: TInputQueryWizardPage;
   
+// Helper: convert common truthy strings to boolean
+function StrToBoolEx(S: String): Boolean;
+begin
+  S := LowerCase(Trim(S));
+  Result := (S = '1') or (S = 'true') or (S = 'yes') or (S = 'y');
+end;
+
+// Helper: boolean to '1' or '0'
+function BoolTo01(B: Boolean): String;
+begin
+  if B then
+    Result := '1'
+  else
+    Result := '0';
+end;
+  
 function IsNodeJSInstalled(): Boolean;
 var
   ResultCode: Integer;
@@ -95,12 +111,21 @@ begin
     'Prerequisites Check', 'Checking for required software',
     'METIS requires Node.js and MongoDB. The installer can download and install these for you.');
     
-  PrereqPage.Add('Install Node.js (if not present):', True);
-  PrereqPage.Add('Install MongoDB (if not present):', True);
+  // Use text inputs to simulate checkboxes: user can type True/False or Yes/No
+  // Do not mask these inputs
+  PrereqPage.Add('Install Node.js (if not present) [True/False]:', False);
+  PrereqPage.Add('Install MongoDB (if not present) [True/False]:', False);
   
   // Set default values based on what's already installed
-  PrereqPage.Values[0] := BoolToStr(not IsNodeJSInstalled(), True);
-  PrereqPage.Values[1] := BoolToStr(not IsMongoDBInstalled(), True);
+  if not IsNodeJSInstalled() then
+    PrereqPage.Values[0] := 'True'
+  else
+    PrereqPage.Values[0] := 'False';
+
+  if not IsMongoDBInstalled() then
+    PrereqPage.Values[1] := 'True'
+  else
+    PrereqPage.Values[1] := 'False';
   
   // Create MongoDB user configuration page
   MongoUserPage := CreateInputQueryPage(PrereqPage.ID,
@@ -138,8 +163,8 @@ begin
     MetisPass := MongoUserPage.Values[3];
     
     // Save configuration
-    SaveStringToFile(ConfigFile, 'INSTALL_NODEJS=' + BoolToStr(StrToBool(PrereqPage.Values[0]), '1', '0') + #13#10, False);
-    SaveStringToFile(ConfigFile, 'INSTALL_MONGODB=' + BoolToStr(StrToBool(PrereqPage.Values[1]), '1', '0') + #13#10, True);
+  SaveStringToFile(ConfigFile, 'INSTALL_NODEJS=' + BoolTo01(StrToBoolEx(PrereqPage.Values[0])) + #13#10, False);
+  SaveStringToFile(ConfigFile, 'INSTALL_MONGODB=' + BoolTo01(StrToBoolEx(PrereqPage.Values[1])) + #13#10, True);
     SaveStringToFile(ConfigFile, 'MONGO_ADMIN_USER=' + AdminUser + #13#10, True);
     SaveStringToFile(ConfigFile, 'MONGO_ADMIN_PASS=' + AdminPass + #13#10, True);
     SaveStringToFile(ConfigFile, 'METIS_DB_USER=' + MetisUser + #13#10, True);
