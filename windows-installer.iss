@@ -55,10 +55,10 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Paramete
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: """{app}\server.js"""; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-; Install prerequisites first
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{tmp}\install-prerequisites.ps1"""; StatusMsg: "Installing Node.js and MongoDB..."; Flags: runhidden waituntilterminated
-; Setup MongoDB
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{tmp}\setup-mongodb.ps1"""; StatusMsg: "Configuring MongoDB..."; Flags: runhidden waituntilterminated
+; Install prerequisites first - pass checkbox values as parameters
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{tmp}\install-prerequisites.ps1"" -InstallNodeJS {code:GetNodeJSFlag} -InstallMongoDB {code:GetMongoDBFlag}"; StatusMsg: "Installing Node.js and MongoDB..."; Flags: runhidden waituntilterminated
+; Setup MongoDB - pass credentials as parameters
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{tmp}\setup-mongodb.ps1"" -AdminUser ""{code:GetAdminUser}"" -AdminPass ""{code:GetAdminPass}"" -MetisUser ""{code:GetMetisUser}"" -MetisPass ""{code:GetMetisPass}"""; StatusMsg: "Configuring MongoDB..."; Flags: runhidden waituntilterminated
 ; Setup METIS application
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{tmp}\setup-metis.ps1"" -InstallPath ""{app}"""; StatusMsg: "Installing METIS application..."; Flags: runhidden waituntilterminated
 ; Create Windows service
@@ -138,30 +138,33 @@ begin
     Result := True;
 end;
 
-procedure CurStepChanged(CurStep: TSetupStep);
-var
-  ConfigFile: String;
-  AdminUser, AdminPass, MetisUser, MetisPass: String;
+// Functions to get values for command line parameters
+function GetNodeJSFlag(Param: String): String;
 begin
-  // Write configuration before [Run] executes
-  if CurStep = ssInstall then
-  begin
-    // Save user preferences for PowerShell scripts
-    ConfigFile := ExpandConstant('{tmp}\installer-config.txt');
-    
-    // Get MongoDB credentials (use random if empty)
-    AdminUser := MongoUserPage.Values[0];
-    AdminPass := MongoUserPage.Values[1];
-    MetisUser := MongoUserPage.Values[2];
-    MetisPass := MongoUserPage.Values[3];
-    
-    // Save configuration
-    SaveStringToFile(ConfigFile, 'INSTALL_NODEJS=' + BoolTo01(PrereqPage.Values[0]) + #13#10, False);
-    SaveStringToFile(ConfigFile, 'INSTALL_MONGODB=' + BoolTo01(PrereqPage.Values[1]) + #13#10, True);
-    SaveStringToFile(ConfigFile, 'MONGO_ADMIN_USER=' + AdminUser + #13#10, True);
-    SaveStringToFile(ConfigFile, 'MONGO_ADMIN_PASS=' + AdminPass + #13#10, True);
-    SaveStringToFile(ConfigFile, 'METIS_DB_USER=' + MetisUser + #13#10, True);
-    SaveStringToFile(ConfigFile, 'METIS_DB_PASS=' + MetisPass + #13#10, True);
-    SaveStringToFile(ConfigFile, 'INSTALL_PATH=' + ExpandConstant('{app}') + #13#10, True);
-  end;
+  Result := BoolTo01(PrereqPage.Values[0]);
+end;
+
+function GetMongoDBFlag(Param: String): String;
+begin
+  Result := BoolTo01(PrereqPage.Values[1]);
+end;
+
+function GetAdminUser(Param: String): String;
+begin
+  Result := MongoUserPage.Values[0];
+end;
+
+function GetAdminPass(Param: String): String;
+begin
+  Result := MongoUserPage.Values[1];
+end;
+
+function GetMetisUser(Param: String): String;
+begin
+  Result := MongoUserPage.Values[2];
+end;
+
+function GetMetisPass(Param: String): String;
+begin
+  Result := MongoUserPage.Values[3];
 end;

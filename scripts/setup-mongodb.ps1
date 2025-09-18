@@ -2,7 +2,10 @@
 # Configures MongoDB with authentication and creates users
 
 param(
-    [string]$ConfigFile = "$env:TEMP\installer-config.txt"
+    [string]$AdminUser = "",
+    [string]$AdminPass = "",
+    [string]$MetisUser = "",
+    [string]$MetisPass = ""
 )
 
 # Colors for output
@@ -11,16 +14,7 @@ $Red = "Red"
 $Yellow = "Yellow"
 
 Write-Host "[METIS] Starting MongoDB configuration..." -ForegroundColor $Green
-
-# Read configuration
-$Config = @{}
-if (Test-Path $ConfigFile) {
-    Get-Content $ConfigFile | ForEach-Object {
-        if ($_ -match "^(.+)=(.+)$") {
-            $Config[$matches[1]] = $matches[2]
-        }
-    }
-}
+Write-Host "[METIS] Admin user: $AdminUser" -ForegroundColor $Yellow
 
 # Generate random credentials if not provided
 function New-RandomString {
@@ -34,12 +28,7 @@ function New-RandomPassword {
     return [System.Web.Security.Membership]::GeneratePassword(16, 4)
 }
 
-# Load or generate credentials
-$AdminUser = $Config["MONGO_ADMIN_USER"]
-$AdminPass = $Config["MONGO_ADMIN_PASS"]
-$MetisUser = $Config["METIS_DB_USER"]
-$MetisPass = $Config["METIS_DB_PASS"]
-
+# Generate credentials if not provided
 if ([string]::IsNullOrEmpty($AdminUser)) {
     $AdminUser = "admin_" + (New-RandomString -Length 8)
 }

@@ -2,7 +2,8 @@
 # Downloads and installs Node.js and MongoDB if needed
 
 param(
-    [string]$ConfigFile = "$env:TEMP\installer-config.txt"
+    [string]$InstallNodeJS = "1",
+    [string]$InstallMongoDB = "1"
 )
 
 # Colors for output
@@ -15,19 +16,12 @@ $NodeVersion = "20.17.0"
 $MongoVersion = "8.0.4"
 
 Write-Host "[METIS] Starting prerequisites installation..." -ForegroundColor $Green
+Write-Host "[METIS] InstallNodeJS: $InstallNodeJS" -ForegroundColor $Yellow
+Write-Host "[METIS] InstallMongoDB: $InstallMongoDB" -ForegroundColor $Yellow
 
-# Read configuration
-$Config = @{}
-if (Test-Path $ConfigFile) {
-    Get-Content $ConfigFile | ForEach-Object {
-        if ($_ -match "^(.+)=(.+)$") {
-            $Config[$matches[1]] = $matches[2]
-        }
-    }
-}
-
-$InstallNodeJS = $Config["INSTALL_NODEJS"] -eq "1"
-$InstallMongoDB = $Config["INSTALL_MONGODB"] -eq "1"
+# Convert string parameters to boolean
+$InstallNodeJSBool = $InstallNodeJS -eq "1"
+$InstallMongoDBBool = $InstallMongoDB -eq "1"
 
 # Function to check if a program is installed
 function Test-ProgramInstalled {
@@ -61,7 +55,7 @@ function Download-File {
 }
 
 # Install Node.js
-if ($InstallNodeJS) {
+if ($InstallNodeJSBool) {
     Write-Host "[METIS] Installing Node.js..." -ForegroundColor $Green
     
     if (Test-ProgramInstalled "node") {
@@ -99,7 +93,7 @@ if ($InstallNodeJS) {
 }
 
 # Install MongoDB
-if ($InstallMongoDB) {
+if ($InstallMongoDBBool) {
     Write-Host "[METIS] Installing MongoDB..." -ForegroundColor $Green
     
     if (Test-Path "C:\Program Files\MongoDB\Server\*\bin\mongod.exe") {
