@@ -1,5 +1,9 @@
 ; METIS Windows Installer Script for Inno Setup
-; This creates a GUI installer for METIS on Windows systems
+; This c[Run]
+; Install prerequisites first - pass checkbox values as parameters (VISIBLE for debugging)
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{tmp}\install-prerequisites.ps1"" -InstallNodeJS {code:GetNodeJSFlag} -InstallMongoDB {code:GetMongoDBFlag}"; StatusMsg: "Installing Node.js and MongoDB..."; Flags: waituntilterminated
+; Setup MongoDB - pass credentials as parameters
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{tmp}\setup-mongodb.ps1"" -AdminUser ""{code:GetAdminUser}"" -AdminPass ""{code:GetAdminPass}"" -MetisUser ""{code:GetMetisUser}"" -MetisPass ""{code:GetMetisPass}"""; StatusMsg: "Configuring MongoDB..."; Flags: runhidden waituntilterminateds a GUI installer for METIS on Windows systems
 
 #define MyAppName "METIS"
 #define MyAppVersion "1.0"
@@ -29,6 +33,7 @@ Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
+SetupLogging=yes
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 
@@ -55,8 +60,8 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Paramete
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: """{app}\server.js"""; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-; Install prerequisites first - pass checkbox values as parameters
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{tmp}\install-prerequisites.ps1"" -InstallNodeJS {code:GetNodeJSFlag} -InstallMongoDB {code:GetMongoDBFlag}"; StatusMsg: "Installing Node.js and MongoDB..."; Flags: runhidden waituntilterminated
+; Install prerequisites first - pass checkbox values as parameters (VISIBLE for debugging)
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{tmp}\install-prerequisites.ps1"" -InstallNodeJS {code:GetNodeJSFlag} -InstallMongoDB {code:GetMongoDBFlag}"; StatusMsg: "Installing Node.js and MongoDB..."; Flags: waituntilterminated
 ; Setup MongoDB - pass credentials as parameters
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{tmp}\setup-mongodb.ps1"" -AdminUser ""{code:GetAdminUser}"" -AdminPass ""{code:GetAdminPass}"" -MetisUser ""{code:GetMetisUser}"" -MetisPass ""{code:GetMetisPass}"""; StatusMsg: "Configuring MongoDB..."; Flags: runhidden waituntilterminated
 ; Setup METIS application
