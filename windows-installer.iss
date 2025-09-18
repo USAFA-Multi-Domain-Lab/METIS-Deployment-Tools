@@ -109,7 +109,8 @@ begin
   // Create a page for prerequisite options as checkboxes
   PrereqPage := CreateInputOptionPage(wpWelcome,
     'Prerequisites', 'Select required software',
-    'METIS requires Node.js and MongoDB. The installer can download and install these for you.');
+    'METIS requires Node.js and MongoDB. The installer can download and install these for you.',
+    False, False);
 
   PrereqPage.Add('Install Node.js (if not present)');
   PrereqPage.Add('Install MongoDB (if not present)');
