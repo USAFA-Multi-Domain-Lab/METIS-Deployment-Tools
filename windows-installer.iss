@@ -1,9 +1,6 @@
+
 ; METIS Windows Installer Script for Inno Setup
-; This c[Run]
-; Install prerequisites first - pass checkbox values as parameters (VISIBLE for debugging)
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{tmp}\install-prerequisites.ps1"" -InstallNodeJS {code:GetNodeJSFlag} -InstallMongoDB {code:GetMongoDBFlag}"; StatusMsg: "Installing Node.js and MongoDB..."; Flags: waituntilterminated
-; Setup MongoDB - pass credentials as parameters
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{tmp}\setup-mongodb.ps1"" -AdminUser ""{code:GetAdminUser}"" -AdminPass ""{code:GetAdminPass}"" -MetisUser ""{code:GetMetisUser}"" -MetisPass ""{code:GetMetisPass}"""; StatusMsg: "Configuring MongoDB..."; Flags: runhidden waituntilterminateds a GUI installer for METIS on Windows systems
+; This creates a GUI installer for METIS on Windows systems
 
 #define MyAppName "METIS"
 #define MyAppVersion "1.0"
