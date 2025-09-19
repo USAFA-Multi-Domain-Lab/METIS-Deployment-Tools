@@ -60,11 +60,11 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameter
 ; Install prerequisites first - pass checkbox values as parameters (VISIBLE for debugging)
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{tmp}\install-prerequisites.ps1"" -InstallNodeJS {code:GetNodeJSFlag} -InstallMongoDB {code:GetMongoDBFlag}"; StatusMsg: "Installing Node.js and MongoDB..."; Flags: waituntilterminated
 ; Setup MongoDB - pass credentials as parameters
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{tmp}\setup-mongodb.ps1"" -AdminUser ""{code:GetAdminUser}"" -AdminPass ""{code:GetAdminPass}"" -MetisUser ""{code:GetMetisUser}"" -MetisPass ""{code:GetMetisPass}"""; StatusMsg: "Configuring MongoDB..."; Flags: runhidden waituntilterminated
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{tmp}\setup-mongodb.ps1"" -AdminUser ""{code:GetAdminUser}"" -AdminPass ""{code:GetAdminPass}"" -MetisUser ""{code:GetMetisUser}"" -MetisPass ""{code:GetMetisPass}"""; StatusMsg: "Configuring MongoDB..."; Flags: waituntilterminated
 ; Setup METIS application
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{tmp}\setup-metis.ps1"" -InstallPath ""{app}"""; StatusMsg: "Installing METIS application..."; Flags: runhidden waituntilterminated
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{tmp}\setup-metis.ps1"" -InstallPath ""{app}"" -MetisUser ""{code:GetMetisUser}"" -MetisPass ""{code:GetMetisPass}"""; StatusMsg: "Installing METIS application..."; Flags: waituntilterminated
 ; Create Windows service
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{tmp}\create-service.ps1"" -InstallPath ""{app}"""; StatusMsg: "Creating METIS service..."; Flags: runhidden waituntilterminated
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{tmp}\create-service.ps1"" -InstallPath ""{app}"""; StatusMsg: "Creating METIS service..."; Flags: waituntilterminated
 
 [UninstallRun]
 ; Stop and remove the service
