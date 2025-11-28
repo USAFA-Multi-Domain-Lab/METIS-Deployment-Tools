@@ -419,10 +419,10 @@ configure_mongodb
 check_install_mongodb
 setup_mongodb_auth
 create_web_user
+save_credentials
 install_nodejs
 setup_metis
 configure_metis_env
-save_credentials
 create_metis_service
 start_metis_service
 
