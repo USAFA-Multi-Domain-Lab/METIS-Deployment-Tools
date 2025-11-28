@@ -301,19 +301,9 @@ setup_metis() {
     sudo chmod -R 755 "$METIS_INSTALL_DIR"
     sudo chown -R $USER:$USER "$METIS_INSTALL_DIR"
 
-    # Check SSH key permissions
-    # sudo chmod 600 /home/admin/.ssh/id_ed25519
-
-    # Add SSH keys.
-    # eval "$(ssh-agent -s)"
-    # ssh-add /home/admin/.ssh/id_ed25519
-
-    # Ensure Git does not prompt for confirmation of the host key
-    # export GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no'
-
     # Clone the repository if it doesn't exist
     echo -e "${green}[METIS] Cloning METIS repository to $METIS_INSTALL_DIR...${reset}"
-    git clone git@github.com:USAFA-Multi-Domain-Lab/METIS-Modular-Effects-based-Transmitter-for-Integrated-Simulations.git "$METIS_INSTALL_DIR" || {
+    git clone https://github.com/salient-usafa-cyber-crew/metis.git "$METIS_INSTALL_DIR" || {
       echo "[ERROR] Failed to clone repository" >&2
       exit 1
     }
