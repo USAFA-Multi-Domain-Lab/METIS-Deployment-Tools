@@ -365,7 +365,7 @@ After=network.target
 Type=simple
 User=$USER
 WorkingDirectory=$METIS_INSTALL_DIR
-ExecStart=/usr/bin/npm run prod
+ExecStart=/usr/bin/npm start
 Restart=on-failure
 Environment=NODE_ENV=production
 
