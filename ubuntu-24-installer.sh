@@ -305,8 +305,8 @@ setup_metis() {
     sudo chmod 600 /home/admin/.ssh/id_ed25519
 
     # Add SSH keys.
-    eval "$(ssh-agent -s)"
-    ssh-add /home/admin/.ssh/id_ed25519
+    # eval "$(ssh-agent -s)"
+    # ssh-add /home/admin/.ssh/id_ed25519
 
     # Ensure Git does not prompt for confirmation of the host key
     export GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no'
