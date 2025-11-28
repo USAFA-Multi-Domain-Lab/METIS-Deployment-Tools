@@ -313,7 +313,7 @@ setup_metis() {
 
     # Clone the repository if it doesn't exist
     echo -e "${green}[METIS] Cloning METIS repository to $METIS_INSTALL_DIR...${reset}"
-    git clone git@github.com:salient-usafa-cyber-crew/metis.git "$METIS_INSTALL_DIR" || {
+    git clone git@github.com:USAFA-Multi-Domain-Lab/METIS-Modular-Effects-based-Transmitter-for-Integrated-Simulations.git "$METIS_INSTALL_DIR" || {
       echo "[ERROR] Failed to clone repository" >&2
       exit 1
     }
