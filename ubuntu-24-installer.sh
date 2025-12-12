@@ -312,10 +312,17 @@ setup_metis() {
     cd "$METIS_INSTALL_DIR" || exit 1
   fi
 
-  # Make cli/wrapper.sh executable and symlink to /usr/local/bin/metis
-  if [ -f "$METIS_INSTALL_DIR/cli/wrapper.sh" ]; then
-    sudo chmod +x "$METIS_INSTALL_DIR/cli/wrapper.sh"
-    sudo ln -sf "$METIS_INSTALL_DIR/cli/wrapper.sh" /usr/local/bin/metis
+  # Create CLI wrapper script dynamically if cli/index.js exists
+  if [ -f "$METIS_INSTALL_DIR/cli/index.js" ]; then
+    echo -e "${green}[METIS] Creating CLI wrapper...${reset}"
+    sudo bash -c "cat > /usr/local/bin/metis" <<'WRAPPER'
+#!/bin/bash
+# METIS CLI wrapper - dynamically generated during installation
+node "METIS_INSTALL_DIR_PLACEHOLDER/cli/index.js" "$@"
+WRAPPER
+    # Replace placeholder with actual installation directory
+    sudo sed -i "s|METIS_INSTALL_DIR_PLACEHOLDER|$METIS_INSTALL_DIR|g" /usr/local/bin/metis
+    sudo chmod +x /usr/local/bin/metis
     echo -e "${green}[METIS] CLI installed as 'metis' in PATH.${reset}"
   fi
 
@@ -426,3 +433,7 @@ echo -e "${green}[METIS] Installation and provisioning completed!${reset}"
 
 #Consideration -- security/lockdown of code
 # --Starting w/ disabled features: mongosh --nodb --eval "disableTelemetry()"
+
+
+# Installation command:
+# curl -o /tmp/ubuntu-24-installer.sh https://raw.githubusercontent.com/USAFA-Multi-Domain-Lab/METIS-Deployment-Tools/windows-installer-dev/ubuntu-24-installer.sh && chmod +x /tmp/ubuntu-24-installer.sh && sudo /tmp/ubuntu-24-installer.sh && rm /tmp/ubuntu-24-installer.sh

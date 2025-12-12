@@ -415,10 +415,11 @@ function Setup-METIS {
         Set-Location $METIS_INSTALL_DIR
     }
 
-    # Make CLI accessible (create a wrapper batch file)
-    if (Test-Path "$METIS_INSTALL_DIR\cli.sh") {
+    # Create CLI wrapper batch file dynamically if cli/index.js exists
+    if (Test-Path "$METIS_INSTALL_DIR\cli\index.js") {
+        Write-Success "[METIS] Creating CLI wrapper..."
         $cliWrapper = "C:\Windows\System32\metis.bat"
-        $cliContent = "@echo off`r`nbash `"$METIS_INSTALL_DIR\cli.sh`" %*"
+        $cliContent = "@echo off`r`nnode `"$METIS_INSTALL_DIR\cli\index.js`" %*"
         Set-Content -Path $cliWrapper -Value $cliContent
         Write-Success "[METIS] CLI installed as 'metis' in PATH."
     }
