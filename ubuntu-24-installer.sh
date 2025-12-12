@@ -312,10 +312,10 @@ setup_metis() {
     cd "$METIS_INSTALL_DIR" || exit 1
   fi
 
-  # Make cli.sh executable and symlink to /usr/local/bin/metis
-  if [ -f "$METIS_INSTALL_DIR/cli.sh" ]; then
-    sudo chmod +x "$METIS_INSTALL_DIR/cli.sh"
-    sudo ln -sf "$METIS_INSTALL_DIR/cli.sh" /usr/local/bin/metis
+  # Make cli/wrapper.sh executable and symlink to /usr/local/bin/metis
+  if [ -f "$METIS_INSTALL_DIR/cli/wrapper.sh" ]; then
+    sudo chmod +x "$METIS_INSTALL_DIR/cli/wrapper.sh"
+    sudo ln -sf "$METIS_INSTALL_DIR/cli/wrapper.sh" /usr/local/bin/metis
     echo -e "${green}[METIS] CLI installed as 'metis' in PATH.${reset}"
   fi
 
