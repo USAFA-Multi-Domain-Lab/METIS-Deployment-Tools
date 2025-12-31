@@ -11,8 +11,11 @@ function Write-Success { Write-Host $args -ForegroundColor Green }
 function Write-Error { Write-Host $args -ForegroundColor Red }
 function Write-Warning { Write-Host $args -ForegroundColor Yellow }
 
-# Default directory
-$METIS_INSTALL_DIR = "C:\metis"
+# Default directory (using 8.3 short path to avoid issues with spaces)
+$METIS_INSTALL_DIR = "C:\PROGRA~1\METIS"
+
+# Store the starting directory to return to it at the end
+$STARTING_DIR = Get-Location
 
 $CREDENTIALS_FILE = "$env:PROGRAMDATA\metis-credentials.txt"
 $CREDENTIALS_EXIST = $false
@@ -83,13 +86,7 @@ function Generate-Credentials {
 function Install-MongoDB {
     Write-Success "[METIS] Installing MongoDB..."
 
-    # Check if MongoDB is already installed
-    if (Get-Command mongod -ErrorAction SilentlyContinue) {
-        Write-Warning "[METIS] MongoDB appears to be already installed. Skipping installation..."
-        return
-    }
-
-    # Check if Chocolatey is installed
+    # Check if Chocolatey is installed (needed for all MongoDB components)
     if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
         Write-Success "[METIS] Installing Chocolatey package manager..."
         Set-ExecutionPolicy Bypass -Scope Process -Force
@@ -97,18 +94,34 @@ function Install-MongoDB {
         Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
     }
 
-    # Install MongoDB Community Edition
-    Write-Success "[METIS] Installing MongoDB Community Edition 8.0.4..."
-    choco install mongodb --version=8.0.4 -y
+    # Install MongoDB Community Edition if not present
+    if (-not (Get-Command mongod -ErrorAction SilentlyContinue)) {
+        Write-Success "[METIS] Installing MongoDB Community Edition 8.0.4..."
+        choco install mongodb --version=8.0.4 -y
+    } else {
+        Write-Warning "[METIS] MongoDB already installed. Skipping..."
+    }
 
-    # Install MongoDB Shell
-    Write-Success "[METIS] Installing MongoDB Shell..."
-    choco install mongodb-shell -y
+    # Install MongoDB Shell if not present
+    if (-not (Get-Command mongosh -ErrorAction SilentlyContinue)) {
+        Write-Success "[METIS] Installing MongoDB Shell..."
+        choco install mongodb-shell -y
+    } else {
+        Write-Warning "[METIS] MongoDB Shell already installed. Skipping..."
+    }
+
+    # Install MongoDB Database Tools if not present
+    if (-not (Get-Command mongodump -ErrorAction SilentlyContinue)) {
+        Write-Success "[METIS] Installing MongoDB Database Tools..."
+        choco install mongodb-database-tools -y
+    } else {
+        Write-Warning "[METIS] MongoDB Database Tools already installed. Skipping..."
+    }
 
     # Refresh environment variables to pick up MongoDB in PATH
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
     
-    Write-Success "[METIS] MongoDB installed."
+    Write-Success "[METIS] MongoDB installation completed."
 }
 
 function Configure-MongoDB {
@@ -328,6 +341,38 @@ db.createUser({
 function Install-NodeJS {
     Write-Success "[METIS] Installing NodeJS..."
 
+    # Check current Node.js version if installed
+    $nodeVersion = $null
+    $needsReinstall = $false
+    
+    if (Get-Command node -ErrorAction SilentlyContinue) {
+        try {
+            $nodeVersionOutput = & node --version 2>&1 | Out-String
+            if ($nodeVersionOutput -match 'v(\d+)\.(\d+)\.') {
+                $nodeMajorVersion = [int]$matches[1]
+                $nodeMinorVersion = [int]$matches[2]
+                $nodeVersion = $nodeVersionOutput.Trim()
+                Write-Host "[METIS] Current Node.js version: $nodeVersion" -ForegroundColor Gray
+                
+                # Check if it's not v22.12+
+                $isCompatible = ($nodeMajorVersion -eq 22 -and $nodeMinorVersion -ge 12) -or ($nodeMajorVersion -gt 22)
+                if (-not $isCompatible) {
+                    Write-Warning "[METIS] Node.js $nodeVersion detected."
+                    Write-Warning "[METIS] METIS requires Node.js v22.12+ or higher. Your current version may cause compatibility issues."
+                    Write-Host ""
+                    $response = Read-Host "Therefore, would you like to install Node.js v22.21.1? (Y/n)"
+                    if ($response -eq "" -or $response -eq "Y" -or $response -eq "y") {
+                        $needsReinstall = $true
+                    } else {
+                        Write-Warning "[METIS] Continuing with Node.js $nodeVersion. If you encounter issues, consider reinstalling with v22.21.1."
+                    }
+                }
+            }
+        } catch {
+            $needsReinstall = $true
+        }
+    }
+
     # Check if npm is working properly by testing actual execution
     $npmWorking = $false
     if (Get-Command node -ErrorAction SilentlyContinue) {
@@ -342,11 +387,13 @@ function Install-NodeJS {
         }
     }
 
-    # If Node.js is installed but npm is broken, reinstall
-    if ((Get-Command node -ErrorAction SilentlyContinue) -and -not $npmWorking) {
-        Write-Warning "[METIS] Node.js is installed but npm is not working properly. Reinstalling..."
+    # If Node.js needs reinstall or npm is broken, reinstall
+    if ($needsReinstall -or ((Get-Command node -ErrorAction SilentlyContinue) -and -not $npmWorking)) {
+        if (-not $npmWorking) {
+            Write-Warning "[METIS] Node.js is installed but npm is not working properly. Reinstalling..."
+        }
         
-        # Uninstall broken Node.js installation (suppress errors for non-existent packages)
+        # Uninstall existing Node.js installation (suppress errors for non-existent packages)
         Write-Host "[METIS] Removing old Node.js installations..." -ForegroundColor Gray
         choco uninstall nodejs -y --all-versions 2>&1 | Where-Object { $_ -notmatch "is not installed" } | Out-Null
         choco uninstall nodejs.install -y --all-versions 2>&1 | Where-Object { $_ -notmatch "is not installed" } | Out-Null
@@ -355,14 +402,28 @@ function Install-NodeJS {
         
         # Clean up PATH
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-    } elseif ($npmWorking) {
-        Write-Success "[METIS] Node.js and npm are already installed and working."
+    } elseif ($npmWorking -and -not $needsReinstall) {
+        Write-Success "[METIS] Node.js v22.12+ and npm are already installed and working."
         return
     }
 
-    # Install Node.js LTS using Chocolatey (includes npm)
-    Write-Success "[METIS] Installing Node.js LTS..."
-    choco install nodejs-lts -y
+    # Install Node.js 22.x LTS using official installer
+    Write-Success "[METIS] Installing Node.js v22.21.1..."
+    
+    $nodeVersion = "22.21.1"
+    $nodeInstallerUrl = "https://nodejs.org/dist/v$nodeVersion/node-v$nodeVersion-x64.msi"
+    $installerPath = "$env:TEMP\node-v$nodeVersion-x64.msi"
+    
+    Write-Host "[METIS] Downloading Node.js installer..." -ForegroundColor Gray
+    Invoke-WebRequest -Uri $nodeInstallerUrl -OutFile $installerPath
+    
+    Write-Host "[METIS] Running Node.js installer..." -ForegroundColor Gray
+    Start-Process msiexec.exe -ArgumentList "/i `"$installerPath`" /quiet /norestart" -Wait -NoNewWindow
+    
+    # Clean up installer
+    Remove-Item $installerPath -Force
+    
+    Write-Success "[METIS] Node.js installation completed."
 
     # Refresh environment variables
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
@@ -406,7 +467,7 @@ function Setup-METIS {
             $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
         }
 
-        git clone https://github.com/USAFA-Multi-Domain-Lab/METIS-Modular-Effects-based-Transmitter-for-Integrated-Simulations.git $METIS_INSTALL_DIR
+        git clone -b cli-dev https://github.com/USAFA-Multi-Domain-Lab/METIS-Modular-Effects-based-Transmitter-for-Integrated-Simulations.git $METIS_INSTALL_DIR
         if ($LASTEXITCODE -ne 0) {
             Write-Error "[ERROR] Failed to clone repository"
             exit 1
@@ -415,13 +476,13 @@ function Setup-METIS {
         Set-Location $METIS_INSTALL_DIR
     }
 
-    # Create CLI wrapper batch file dynamically if cli/index.js exists
-    if (Test-Path "$METIS_INSTALL_DIR\cli\index.js") {
+    # Create CLI wrapper batch file dynamically if cli/loader.cjs exists
+    if (Test-Path "$METIS_INSTALL_DIR\cli\loader.cjs") {
         Write-Success "[METIS] Creating CLI wrapper..."
         $cliWrapper = "C:\Windows\System32\metis.bat"
-        $cliContent = "@echo off`r`nnode `"$METIS_INSTALL_DIR\cli\index.js`" %*"
+        $cliContent = "@echo off`r`nREM METIS CLI Wrapper`r`nnode `"$METIS_INSTALL_DIR\cli\loader.cjs`" %*"
         Set-Content -Path $cliWrapper -Value $cliContent
-        Write-Success "[METIS] CLI installed as 'metis' in PATH."
+        Write-Success "[METIS] CLI installed as 'metis' command."
     }
 
     # Install dependencies and build the application
@@ -488,6 +549,23 @@ function New-METISService {
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
     }
 
+    # Create a startup batch file in ProgramData (outside the Git repository)
+    $serviceDataDir = "$env:PROGRAMDATA\METIS"
+    if (-not (Test-Path $serviceDataDir)) {
+        New-Item -ItemType Directory -Path $serviceDataDir -Force | Out-Null
+    }
+    $startupBatch = Join-Path $serviceDataDir "start-metis-service.bat"
+    $batchContent = @"
+@echo off
+REM METIS Service Startup Script
+cd /d "$METIS_INSTALL_DIR"
+SET NODE_ENV=production
+SET PATH=C:\PROGRA~1\nodejs;%PATH%
+npm run start
+"@
+    Set-Content -Path $startupBatch -Value $batchContent
+    Write-Success "[METIS] Created service startup script at $startupBatch"
+
     # Remove existing service if it exists
     $service = Get-Service -Name "METIS" -ErrorAction SilentlyContinue
     if ($service) {
@@ -496,17 +574,28 @@ function New-METISService {
         & nssm remove METIS confirm
     }
 
-    # Install the service
-    $npmPath = (Get-Command npm).Source
-    & nssm install METIS $npmPath
-    & nssm set METIS AppParameters "start"
+    # Install the service using cmd.exe to run the batch file
+    & nssm install METIS cmd.exe
+    & nssm set METIS AppParameters "/c `"$startupBatch`""
     & nssm set METIS AppDirectory $METIS_INSTALL_DIR
-    & nssm set METIS AppEnvironmentExtra "NODE_ENV=production"
     & nssm set METIS DisplayName "METIS Web Service"
     & nssm set METIS Description "METIS Modular Effects-based Transmitter for Integrated Simulations"
     & nssm set METIS Start SERVICE_AUTO_START
+    
+    # Set up logging in proper Windows location
+    $logDir = "$env:PROGRAMDATA\METIS\logs"
+    if (-not (Test-Path $logDir)) {
+        New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+    }
+    & nssm set METIS AppStdout (Join-Path $logDir "metis-service.log")
+    & nssm set METIS AppStderr (Join-Path $logDir "metis-service-error.log")
+    
+    # Rotate logs to prevent them from growing too large
+    & nssm set METIS AppStdoutCreationDisposition 4
+    & nssm set METIS AppStderrCreationDisposition 4
 
     Write-Success "[METIS] METIS service created and enabled to start on boot."
+    Write-Success "[METIS] Service logs will be written to $logDir"
 }
 
 function Save-Credentials {
@@ -580,19 +669,22 @@ Set-METISEnvironment
 New-METISService
 Start-METISService
 
+# Return to the starting directory
+Set-Location $STARTING_DIR
+
 Write-Host ""
 Write-Success "[METIS] Installation and provisioning completed!"
 Write-Host ""
 Write-Host "================================================" -ForegroundColor Cyan
-Write-Host "Next Steps:" -ForegroundColor Yellow
+Write-Host "METIS Service" -ForegroundColor Yellow
 Write-Host "================================================" -ForegroundColor Cyan
-Write-Host "1. Restart your computer to complete the installation" -ForegroundColor White
-Write-Host "2. After restart, start the METIS service with:" -ForegroundColor White
-Write-Host "   Start-Service METIS" -ForegroundColor Green
+Write-Host "METIS is running and will start up automatically on boot." -ForegroundColor White
 Write-Host ""
-Write-Host "Or run METIS manually without the service:" -ForegroundColor White
-Write-Host "   cd $METIS_INSTALL_DIR" -ForegroundColor Green
-Write-Host "   npm start" -ForegroundColor Green
+Write-Host "To manage the METIS service, use:" -ForegroundColor White
+Write-Host "   metis start" -ForegroundColor Green
+Write-Host "   metis stop" -ForegroundColor Green
+Write-Host "   metis restart" -ForegroundColor Green
+Write-Host "   metis status" -ForegroundColor Green
 Write-Host ""
 Write-Host "MongoDB credentials are saved in:" -ForegroundColor White
 Write-Host "   $CREDENTIALS_FILE" -ForegroundColor Green

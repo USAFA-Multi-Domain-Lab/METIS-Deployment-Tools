@@ -312,13 +312,13 @@ setup_metis() {
     cd "$METIS_INSTALL_DIR" || exit 1
   fi
 
-  # Create CLI wrapper script dynamically if cli/index.js exists
-  if [ -f "$METIS_INSTALL_DIR/cli/index.js" ]; then
+  # Create CLI wrapper script dynamically if cli/loader.cjs exists
+  if [ -f "$METIS_INSTALL_DIR/cli/loader.cjs" ]; then
     echo -e "${green}[METIS] Creating CLI wrapper...${reset}"
     sudo bash -c "cat > /usr/local/bin/metis" <<'WRAPPER'
 #!/bin/bash
 # METIS CLI wrapper - dynamically generated during installation
-node "METIS_INSTALL_DIR_PLACEHOLDER/cli/index.js" "$@"
+node "METIS_INSTALL_DIR_PLACEHOLDER/cli/loader.cjs" "$@"
 WRAPPER
     # Replace placeholder with actual installation directory
     sudo sed -i "s|METIS_INSTALL_DIR_PLACEHOLDER|$METIS_INSTALL_DIR|g" /usr/local/bin/metis
