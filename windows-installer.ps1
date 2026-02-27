@@ -522,26 +522,13 @@ function Set-METISEnvironment {
         New-Item -ItemType Directory -Path $configDir -Force | Out-Null
     }
 
-    # Reuse existing port if prod.env already has one (e.g. on reinstall),
-    # otherwise auto-assign the first free port starting from 8080.
-    $existingPort = $null
-    if (Test-Path $prodEnvFile) {
-        $existingLine = Get-Content $prodEnvFile | Where-Object { $_ -match '^PORT=(\d+)' }
-        if ($existingLine -match '^PORT=(\d+)') {
-            $existingPort = [int]$Matches[1]
-        }
+    # Auto-assign a free port starting from 8080
+    $candidate = 8080
+    while (Get-NetTCPConnection -LocalPort $candidate -ErrorAction SilentlyContinue) {
+        $candidate++
     }
-    if ($existingPort) {
-        $script:METIS_PORT = $existingPort
-        Write-Success "Reusing existing port $script:METIS_PORT for METIS."
-    } else {
-        $candidate = 8080
-        while (Get-NetTCPConnection -LocalPort $candidate -ErrorAction SilentlyContinue) {
-            $candidate++
-        }
-        $script:METIS_PORT = $candidate
-        Write-Success "Auto-assigned port $script:METIS_PORT for METIS."
-    }
+    $script:METIS_PORT = $candidate
+    Write-Success "Auto-assigned port $script:METIS_PORT for METIS."
 
     $envContent = @"
 MONGO_USERNAME="$($script:METIS_USER)"
@@ -669,8 +656,18 @@ function Start-METISService {
     }
 }
 
+function Stop-ExistingMETISService {
+    $existingService = Get-Service -Name "METIS" -ErrorAction SilentlyContinue
+    if ($existingService -and $existingService.Status -eq 'Running') {
+        Write-MetisWarning "Existing METIS service is running. Stopping it before reinstall..."
+        Stop-Service -Name "METIS" -Force -ErrorAction SilentlyContinue
+        Write-Success "METIS service stopped."
+    }
+}
+
 # Main execution
 # ===============
+Stop-ExistingMETISService
 Generate-Credentials
 Install-MongoDB
 Configure-MongoDB
