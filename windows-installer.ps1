@@ -167,17 +167,22 @@ function Test-MongoDBInstallation {
     # Refresh PATH to ensure MongoDB binaries are accessible
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 
-    # Check if MongoDB data directory exists
-    $dataDir = "C:\Program Files\MongoDB\Server\8.0\data"
-    if (Test-Path $dataDir) {
-        Write-Success "[METIS] MongoDB data directory found."
+    # Check if MongoDB data directory exists (read path from config rather than hardcoding)
+    $configFile = "C:\Program Files\MongoDB\Server\8.0\bin\mongod.cfg"
+    $dataDirConfig = Get-Content $configFile -Raw
+    if ($dataDirConfig -match "dbPath:\s*(.+)") {
+        $dataDir = $Matches[1].Trim()
     } else {
-        Write-MetisWarning "[METIS][WARN] MongoDB data directory not found at default location."
+        $dataDir = "C:\Program Files\MongoDB\Server\8.0\data"
+    }
+    if (Test-Path $dataDir) {
+        Write-Success "[METIS] MongoDB data directory found at $dataDir."
+    } else {
+        Write-MetisWarning "[METIS][WARN] MongoDB data directory not found at $dataDir."
     }
 
     # Verify configuration
-    $configFile = "C:\Program Files\MongoDB\Server\8.0\bin\mongod.cfg"
-    $config = Get-Content $configFile -Raw
+    $config = $dataDirConfig
     if ($config -match "authorization: enabled") {
         Write-Success "[METIS] MongoDB configuration verified."
     } else {
