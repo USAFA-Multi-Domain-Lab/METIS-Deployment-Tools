@@ -41,8 +41,12 @@ function Generate-Credentials {
     $script:ADMIN_USER = "admin_$adminRand"
     
     # Generate random passwords
-    $adminBytes = [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(16)
-    $metisBytes = [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(16)
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    $adminBytes = New-Object byte[] 16
+    $metisBytes = New-Object byte[] 16
+    $rng.GetBytes($adminBytes)
+    $rng.GetBytes($metisBytes)
+    $rng.Dispose()
     
     $script:ADMIN_PASS = [Convert]::ToBase64String($adminBytes)
     $script:METIS_USER = "metis_$metisRand"
