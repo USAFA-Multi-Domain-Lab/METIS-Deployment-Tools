@@ -28,6 +28,7 @@ $script:ADMIN_USER = ""
 $script:ADMIN_PASS = ""
 $script:METIS_USER = ""
 $script:METIS_PASS = ""
+$script:METIS_PORT = 8080
 
 # Generates random usernames and passwords
 # for the MongoDB admin and web users.
@@ -521,9 +522,18 @@ function Set-METISEnvironment {
         New-Item -ItemType Directory -Path $configDir -Force | Out-Null
     }
 
+    # Auto-assign a free port starting from 8080
+    $candidate = 8080
+    while (Get-NetTCPConnection -LocalPort $candidate -ErrorAction SilentlyContinue) {
+        $candidate++
+    }
+    $script:METIS_PORT = $candidate
+    Write-Success "Auto-assigned port $script:METIS_PORT for METIS."
+
     $envContent = @"
 MONGO_USERNAME="$($script:METIS_USER)"
 MONGO_PASSWORD="$($script:METIS_PASS)"
+PORT=$($script:METIS_PORT)
 "@
 
     Set-Content -Path $prodEnvFile -Value $envContent
@@ -671,6 +681,12 @@ Write-Host "================================================" -ForegroundColor C
 Write-Host "METIS Service" -ForegroundColor Yellow
 Write-Host "================================================" -ForegroundColor Cyan
 Write-Host "METIS is running and will start up automatically on boot." -ForegroundColor White
+Write-Host ""
+Write-Host "Accessible at: http://localhost:$script:METIS_PORT" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "To change the port, edit the PORT value in:" -ForegroundColor White
+Write-Host "   $METIS_INSTALL_DIR\config\prod.env" -ForegroundColor Green
+Write-Host "Then run: metis restart" -ForegroundColor White
 Write-Host ""
 Write-Host "To manage the METIS service, use:" -ForegroundColor White
 Write-Host "   metis start" -ForegroundColor Green
