@@ -166,7 +166,7 @@ function Remove-METISCredentials {
         Write-MetisWarning "Re-run this script to retry, or remove the user manually and then delete the file."
         $null = $script:FAILED_STEPS.Add(@{
             Step      = "METIS credentials file (retained)"
-            NextSteps = "MongoDB user removal failed -- credentials kept for retry. Once resolved, manually delete: $CREDENTIALS_FILE"
+            NextSteps = "MongoDB user removal failed, therefore credentials were kept for retry. Once resolved, manually delete: $CREDENTIALS_FILE"
         })
         return
     }
