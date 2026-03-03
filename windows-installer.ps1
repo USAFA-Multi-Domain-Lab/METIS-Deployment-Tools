@@ -260,7 +260,8 @@ db.createUser({
   pwd: "$($script:ADMIN_PASS)",
   roles: [
     { role: "userAdminAnyDatabase", db: "admin" },
-    { role: "readWriteAnyDatabase", db: "admin" }
+    { role: "readWriteAnyDatabase",  db: "admin" },
+    { role: "dbAdminAnyDatabase",     db: "admin" }
   ]
 })
 "@

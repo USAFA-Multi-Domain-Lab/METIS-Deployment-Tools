@@ -22,8 +22,9 @@ $script:ADMIN_USER        = ""
 $script:ADMIN_PASS        = ""
 $script:METIS_USER        = ""
 $script:METIS_PASS        = ""
-$script:CREDENTIALS_PARSED = $false
-$script:FAILED_STEPS     = [System.Collections.ArrayList]@()
+$script:CREDENTIALS_PARSED    = $false
+$script:MONGO_DROP_SUCCEEDED  = $false
+$script:FAILED_STEPS          = [System.Collections.ArrayList]@()
 
 # Reads MongoDB credentials from the credentials file before it is deleted.
 # Sets $script:CREDENTIALS_PARSED to $true only if all four values are found.
@@ -113,16 +114,19 @@ function Remove-METISMongoUser {
 
     $dropScript = @"
 use metis
-db.dropUser("$($script:METIS_USER)")
-db.dropDatabase()
+try { db.dropUser("$($script:METIS_USER)") } catch(e) {}
+db.getCollectionNames().forEach(function(c) { db.getCollection(c).drop() })
 "@
 
     try {
         $output = $dropScript | & mongosh -u "$($script:ADMIN_USER)" -p "$($script:ADMIN_PASS)" --authenticationDatabase admin 2>&1
         if ($output -match "MongoServerError") {
             Write-MetisWarning "MongoDB reported an error during removal. The user or database may have already been removed."
+            Write-Host "       MongoDB output:" -ForegroundColor Yellow
+            $output | Where-Object { $_ -match "MongoServerError" } | ForEach-Object { Write-Host "       $_" -ForegroundColor Yellow }
         } else {
             Write-Success "METIS MongoDB user and database removed."
+            $script:MONGO_DROP_SUCCEEDED = $true
         }
     } catch {
         Write-MetisWarning "Failed to remove MongoDB user/database: $_"
@@ -153,7 +157,17 @@ function Remove-METISFiles {
 }
 
 # Deletes the saved MongoDB credentials file.
+# Skipped if the MongoDB drop failed so credentials remain available for a retry.
 function Remove-METISCredentials {
+    if ($script:CREDENTIALS_PARSED -and -not $script:MONGO_DROP_SUCCEEDED) {
+        Write-MetisWarning "Keeping credentials file at $CREDENTIALS_FILE because MongoDB user removal failed."
+        Write-MetisWarning "Re-run this script to retry, or remove the user manually and then delete the file."
+        $null = $script:FAILED_STEPS.Add(@{
+            Step      = "METIS credentials file (retained)"
+            NextSteps = "MongoDB user removal failed — credentials kept for retry. Once resolved, manually delete: $CREDENTIALS_FILE"
+        })
+        return
+    }
     Write-Success "Removing METIS credentials file..."
     if (Test-Path $CREDENTIALS_FILE) {
         try {
@@ -248,14 +262,16 @@ Write-Host "METIS Uninstaller"                               -ForegroundColor Ye
 Write-Host "================================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "This will permanently remove:" -ForegroundColor White
-Write-Host "   METIS Windows service"                -ForegroundColor Red
-Write-Host "   METIS MongoDB user and database"      -ForegroundColor Red
-Write-Host "   $SERVICE_DATA_DIR"                    -ForegroundColor Red
-Write-Host "   $CREDENTIALS_FILE"                    -ForegroundColor Red
-Write-Host "   $CLI_WRAPPER"                         -ForegroundColor Red
-Write-Host "   $METIS_INSTALL_DIR"                   -ForegroundColor Red
+Write-Host "   METIS Windows service"                -ForegroundColor Yellow
+Write-Host "   METIS MongoDB user and database"      -ForegroundColor Yellow
+Write-Host "   $SERVICE_DATA_DIR"                    -ForegroundColor Yellow
+Write-Host "   $CREDENTIALS_FILE"                    -ForegroundColor Yellow
+Write-Host "   $CLI_WRAPPER"                         -ForegroundColor Yellow
+Write-Host "   $METIS_INSTALL_DIR"                   -ForegroundColor Yellow
 Write-Host ""
 Write-Host "MongoDB and Node.js will only be removed if you choose to below." -ForegroundColor White
+Write-Host ""
+Write-Host "This action is irreversible." -ForegroundColor Red
 Write-Host ""
 
 $confirm = Read-Host "Are you sure you want to uninstall METIS? (y/N)"
