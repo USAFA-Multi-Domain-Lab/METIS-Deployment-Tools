@@ -228,27 +228,6 @@ function Remove-METISInstallDir {
 
 # Uninstalls MongoDB via Chocolatey (optional).
 function Invoke-MongoDBUninstall {
-    # Stop MongoDB service before removing files so no handles are held open
-    $mongoService = Get-Service -Name MongoDB -ErrorAction SilentlyContinue
-    if ($mongoService) {
-        if ($mongoService.Status -eq 'Running') {
-            try {
-                Write-Success "Stopping MongoDB service before removal..."
-                Stop-Service -Name MongoDB -Force -ErrorAction Stop
-                Start-Sleep -Seconds 3
-                Write-Success "MongoDB service stopped."
-            } catch {
-                Write-MetisWarning "Could not stop MongoDB service: $_"
-            }
-        }
-        try {
-            & sc.exe delete MongoDB | Out-Null
-            Write-Success "MongoDB service entry removed."
-        } catch {
-            Write-MetisWarning "Could not remove MongoDB service entry: $_"
-        }
-    }
-
     Write-Success "Uninstalling MongoDB..."
     try {
         choco uninstall mongodb mongodb-shell mongodb-database-tools -y
@@ -259,23 +238,6 @@ function Invoke-MongoDBUninstall {
             Step      = "MongoDB uninstall"
             NextSteps = "Run: choco uninstall mongodb mongodb-shell mongodb-database-tools -y"
         })
-    }
-
-    # Remove MongoDB data directory so a future reinstall starts clean.
-    # Chocolatey only removes binaries; user/auth data in ProgramData persists otherwise.
-    $mongoDataDir = "$env:PROGRAMDATA\MongoDB"
-    if (Test-Path $mongoDataDir) {
-        Write-Success "Removing MongoDB data directory ($mongoDataDir)..."
-        try {
-            Remove-Item -Path $mongoDataDir -Recurse -Force
-            Write-Success "Removed $mongoDataDir."
-        } catch {
-            Write-MetisWarning "Failed to remove MongoDB data directory: $_"
-            $null = $script:FAILED_STEPS.Add(@{
-                Step      = "MongoDB data directory"
-                NextSteps = "Manually delete: $mongoDataDir (contains auth data that will block a fresh reinstall)"
-            })
-        }
     }
 }
 

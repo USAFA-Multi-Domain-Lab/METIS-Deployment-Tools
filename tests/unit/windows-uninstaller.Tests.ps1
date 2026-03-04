@@ -494,103 +494,23 @@ Describe "Invoke-MongoDBUninstall" {
         Reset-ScriptState
         Mock Write-Success {}
         Mock Write-MetisWarning {}
-        Mock Start-Sleep {}
         Mock choco {}
-        Mock Remove-Item {}
-        # Default: data dir does not exist
-        Mock Test-Path { $false }
     }
 
-    Context "MongoDB service does not exist" {
-        BeforeEach {
-            Mock Get-Service { $null }
-            Mock Stop-Service {}
-        }
-
-        It "does not attempt to stop the service" {
-            Invoke-MongoDBUninstall
-            Should -Not -Invoke Stop-Service
-        }
-
-        It "still calls choco uninstall" {
+    Context "choco uninstall succeeds" {
+        It "calls choco uninstall" {
             Invoke-MongoDBUninstall
             Should -Invoke choco -Times 1
         }
-    }
 
-    Context "MongoDB service exists and is Running" {
-        BeforeEach {
-            Mock Get-Service { [PSCustomObject]@{ Status = 'Running' } }
-            Mock Stop-Service {}
-            Mock sc.exe {}
-        }
-
-        It "stops the MongoDB service before uninstalling" {
+        It "does not add any FAILED_STEPS entries" {
             Invoke-MongoDBUninstall
-            Should -Invoke Stop-Service -Times 1 -ParameterFilter { $Name -eq "MongoDB" }
-        }
-
-        It "sleeps after stopping the service to release file handles" {
-            Invoke-MongoDBUninstall
-            Should -Invoke Start-Sleep -Times 1 -ParameterFilter { $Seconds -eq 3 }
-        }
-
-        It "removes the service entry via sc.exe" {
-            Invoke-MongoDBUninstall
-            Should -Invoke sc.exe -Times 1
-        }
-
-        It "calls choco uninstall after stopping the service" {
-            Invoke-MongoDBUninstall
-            Should -Invoke choco -Times 1
-        }
-    }
-
-    Context "MongoDB service exists but is already Stopped" {
-        BeforeEach {
-            Mock Get-Service { [PSCustomObject]@{ Status = 'Stopped' } }
-            Mock Stop-Service {}
-            Mock sc.exe {}
-        }
-
-        It "does not call Stop-Service" {
-            Invoke-MongoDBUninstall
-            Should -Not -Invoke Stop-Service
-        }
-
-        It "still removes the service entry via sc.exe" {
-            Invoke-MongoDBUninstall
-            Should -Invoke sc.exe -Times 1
-        }
-
-        It "does not sleep (no Stop-Service was called)" {
-            Invoke-MongoDBUninstall
-            Should -Not -Invoke Start-Sleep
-        }
-    }
-
-    Context "Stop-Service throws" {
-        BeforeEach {
-            Mock Get-Service { [PSCustomObject]@{ Status = 'Running' } }
-            Mock Stop-Service { throw "Access denied" }
-            Mock sc.exe {}
-        }
-
-        It "emits a warning but does not add to FAILED_STEPS" {
-            Invoke-MongoDBUninstall
-            Should -Invoke Write-MetisWarning -ParameterFilter { "$args" -match "Could not stop MongoDB service" }
             $script:FAILED_STEPS.Count | Should -Be 0
-        }
-
-        It "still calls choco uninstall after the Stop-Service failure" {
-            Invoke-MongoDBUninstall
-            Should -Invoke choco -Times 1
         }
     }
 
     Context "choco uninstall throws" {
         BeforeEach {
-            Mock Get-Service { $null }
             Mock choco { throw "Package not found" }
         }
 
@@ -603,59 +523,6 @@ Describe "Invoke-MongoDBUninstall" {
         It "FAILED_STEPS entry has a non-empty NextSteps hint" {
             Invoke-MongoDBUninstall
             $script:FAILED_STEPS[0].NextSteps | Should -Not -BeNullOrEmpty
-        }
-    }
-
-    Context "MongoDB data directory exists and Remove-Item succeeds" {
-        BeforeEach {
-            Mock Get-Service { $null }
-            Mock Test-Path { $true }
-        }
-
-        It "removes the data directory with -Recurse -Force" {
-            Invoke-MongoDBUninstall
-            Should -Invoke Remove-Item -Times 1 -ParameterFilter { $Recurse -eq $true -and $Force -eq $true }
-        }
-
-        It "does not add any FAILED_STEPS entries" {
-            Invoke-MongoDBUninstall
-            $script:FAILED_STEPS.Count | Should -Be 0
-        }
-    }
-
-    Context "MongoDB data directory exists but Remove-Item throws" {
-        BeforeEach {
-            Mock Get-Service { $null }
-            Mock Test-Path { $true }
-            Mock Remove-Item { throw "Locked" }
-        }
-
-        It "adds a FAILED_STEPS entry for the data directory" {
-            Invoke-MongoDBUninstall
-            $script:FAILED_STEPS | Where-Object { $_.Step -match "MongoDB data directory" } | Should -Not -BeNullOrEmpty
-        }
-
-        It "FAILED_STEPS entry NextSteps mentions manual deletion" {
-            Invoke-MongoDBUninstall
-            $entry = $script:FAILED_STEPS | Where-Object { $_.Step -match "MongoDB data directory" }
-            $entry.NextSteps | Should -Match "Manually delete"
-        }
-    }
-
-    Context "MongoDB data directory does not exist" {
-        BeforeEach {
-            Mock Get-Service { $null }
-            # Test-Path already returns $false from BeforeEach at Describe level
-        }
-
-        It "does not attempt to remove the data directory" {
-            Invoke-MongoDBUninstall
-            Should -Not -Invoke Remove-Item
-        }
-
-        It "does not add any FAILED_STEPS entries" {
-            Invoke-MongoDBUninstall
-            $script:FAILED_STEPS.Count | Should -Be 0
         }
     }
 }
