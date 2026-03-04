@@ -37,10 +37,10 @@ function Read-METISCredentials {
     Write-Success "Reading credentials from $CREDENTIALS_FILE..."
     $credentials = Get-Content $CREDENTIALS_FILE
 
-    $script:ADMIN_USER = ($credentials | Select-String "MongoDB Admin Username:" | ForEach-Object { $_ -replace "MongoDB Admin Username: ", "" }).Trim()
-    $script:ADMIN_PASS = ($credentials | Select-String "MongoDB Admin Password:" | ForEach-Object { $_ -replace "MongoDB Admin Password: ", "" }).Trim()
-    $script:METIS_USER = ($credentials | Select-String "MongoDB Web Username:"   | ForEach-Object { $_ -replace "MongoDB Web Username: ",   "" }).Trim()
-    $script:METIS_PASS = ($credentials | Select-String "MongoDB Web Password:"   | ForEach-Object { $_ -replace "MongoDB Web Password: ",   "" }).Trim()
+    $script:ADMIN_USER = "$($credentials | Select-String 'MongoDB Admin Username:' | ForEach-Object { $_ -replace 'MongoDB Admin Username: ', '' })".Trim()
+    $script:ADMIN_PASS = "$($credentials | Select-String 'MongoDB Admin Password:' | ForEach-Object { $_ -replace 'MongoDB Admin Password: ', '' })".Trim()
+    $script:METIS_USER = "$($credentials | Select-String 'MongoDB Web Username:'   | ForEach-Object { $_ -replace 'MongoDB Web Username: ',   '' })".Trim()
+    $script:METIS_PASS = "$($credentials | Select-String 'MongoDB Web Password:'   | ForEach-Object { $_ -replace 'MongoDB Web Password: ',   '' })".Trim()
 
     if (-not $script:ADMIN_USER -or -not $script:ADMIN_PASS -or -not $script:METIS_USER -or -not $script:METIS_PASS) {
         Write-MetisWarning "Credentials file exists but could not be fully parsed. Expected format:"
@@ -275,6 +275,7 @@ function Invoke-NodeJSUninstall {
 
 # Main execution
 # ===============
+if ($MyInvocation.InvocationName -ne '.') {
 Write-Host ""
 Write-Host "================================================" -ForegroundColor Cyan
 Write-Host "METIS Uninstaller"                               -ForegroundColor Yellow
@@ -341,6 +342,8 @@ if ($script:FAILED_STEPS.Count -gt 0) {
 
 Write-Host "================================================" -ForegroundColor Cyan
 Write-Host ""
+
+} # end if not dot-sourced
 
 # NOTES
 # - This script requires Administrator privileges to run

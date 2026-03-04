@@ -18,7 +18,7 @@ $METIS_INSTALL_DIR = "C:\PROGRA~1\METIS"
 $STARTING_DIR = Get-Location
 
 $CREDENTIALS_FILE = "$env:PROGRAMDATA\.metis-credentials.txt"
-$script:CREDENTIALS_EXIST = $false
+$script:CREDENTIALS_FOUND = $false
 $script:THIRD_PARTY_ADMIN = $false
 
 Write-Success "Starting installation and provisioning..."
@@ -67,11 +67,11 @@ function Generate-Credentials {
     if (Test-Path $CREDENTIALS_FILE) {
         Write-MetisWarning "Existing credentials found at $CREDENTIALS_FILE. Loading..."
         $credentials = Get-Content $CREDENTIALS_FILE
-        $script:ADMIN_USER = ($credentials | Select-String "MongoDB Admin Username:" | ForEach-Object { $_ -replace "MongoDB Admin Username: ", "" }).Trim()
-        $script:ADMIN_PASS = ($credentials | Select-String "MongoDB Admin Password:" | ForEach-Object { $_ -replace "MongoDB Admin Password: ", "" }).Trim()
-        $script:METIS_USER = ($credentials | Select-String "MongoDB Web Username:" | ForEach-Object { $_ -replace "MongoDB Web Username: ", "" }).Trim()
-        $script:METIS_PASS = ($credentials | Select-String "MongoDB Web Password:" | ForEach-Object { $_ -replace "MongoDB Web Password: ", "" }).Trim()
-        $script:CREDENTIALS_EXIST = $true
+        $script:ADMIN_USER = "$($credentials | Select-String 'MongoDB Admin Username:' | ForEach-Object { $_ -replace 'MongoDB Admin Username: ', '' })".Trim()
+        $script:ADMIN_PASS = "$($credentials | Select-String 'MongoDB Admin Password:' | ForEach-Object { $_ -replace 'MongoDB Admin Password: ', '' })".Trim()
+        $script:METIS_USER = "$($credentials | Select-String 'MongoDB Web Username:'   | ForEach-Object { $_ -replace 'MongoDB Web Username: ',   '' })".Trim()
+        $script:METIS_PASS = "$($credentials | Select-String 'MongoDB Web Password:'   | ForEach-Object { $_ -replace 'MongoDB Web Password: ',   '' })".Trim()
+        $script:CREDENTIALS_FOUND = $true
     }
     # Handle case where MongoDB was installed prior to METIS installation
     elseif ($authCheck -match "MongoServerError") {
@@ -247,7 +247,7 @@ function Setup-MongoDBAuth {
         }
     }
 
-    if ($script:CREDENTIALS_EXIST -or $script:THIRD_PARTY_ADMIN) {
+    if ($script:CREDENTIALS_FOUND -or $script:THIRD_PARTY_ADMIN) {
         Write-MetisWarning "Skipping admin user creation; admin user already exists."
         return
     }
@@ -307,7 +307,7 @@ function New-WebUser {
         }
     }
 
-    if ($script:CREDENTIALS_EXIST) {
+    if ($script:CREDENTIALS_FOUND) {
         Write-MetisWarning "Skipping web server user creation; web server user already exists."
         return
     }
@@ -613,7 +613,7 @@ npm run start
 
 function Save-Credentials {
     # Skip saving if credentials already exist
-    if ($script:CREDENTIALS_EXIST) {
+    if ($script:CREDENTIALS_FOUND) {
         Write-MetisWarning "Credentials already exist. Skipping save."
         return
     }
@@ -668,6 +668,7 @@ function Stop-ExistingMETISService {
 
 # Main execution
 # ===============
+if ($MyInvocation.InvocationName -ne '.') {
 Stop-ExistingMETISService
 Generate-Credentials
 Install-MongoDB
@@ -708,6 +709,8 @@ Write-Host ""
 Write-Host "MongoDB credentials are saved in:" -ForegroundColor White
 Write-Host "   $CREDENTIALS_FILE" -ForegroundColor Green
 Write-Host "================================================" -ForegroundColor Cyan
+
+} # end if not dot-sourced
 
 # NOTES
 # - This script requires Administrator privileges to run

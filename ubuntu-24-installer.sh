@@ -15,7 +15,7 @@ reset='\e[0m'
 METIS_INSTALL_DIR="/opt/metis"
 
 CREDENTIALS_FILE="/root/.metis-credentials.txt"
-CREDENTIALS_EXIST=false
+CREDENTIALS_FOUND=false
 THIRD_PARTY_ADMIN=false
 
 echo -e "${green}[METIS] Starting installation and provisioning...${reset}"
@@ -43,7 +43,7 @@ generate_credentials() {
     ADMIN_PASS=$(grep 'MongoDB Admin Password:' "$CREDENTIALS_FILE" | awk -F': ' '{print $2}')
     METIS_USER=$(grep 'MongoDB Web Username:' "$CREDENTIALS_FILE" | awk -F': ' '{print $2}')
     METIS_PASS=$(grep 'MongoDB Web Password:' "$CREDENTIALS_FILE" | awk -F': ' '{print $2}')
-    CREDENTIALS_EXIST=true
+    CREDENTIALS_FOUND=true
   # Handle case where MongoDB was installed prior
   # to METIS installation.
   elif [[ "$auth_check" == *MongoServerError* ]]; then
@@ -198,7 +198,7 @@ setup_mongodb_auth() {
     sleep 7 # + 3 next iteration = 10 seconds.
   done
 
-  if [ "$CREDENTIALS_EXIST" = true ] || [ "$THIRD_PARTY_ADMIN" = true ]; then
+  if [ "$CREDENTIALS_FOUND" = true ] || [ "$THIRD_PARTY_ADMIN" = true ]; then
     echo -e "${yellow}[METIS] Skipping admin user creation; admin user already exist.${reset}"
     return
   fi
@@ -249,7 +249,7 @@ create_web_user() {
     sleep 7 # + 3 next iteration = 10 seconds.
   done
 
-  if [ "$CREDENTIALS_EXIST" = true ]; then
+  if [ "$CREDENTIALS_FOUND" = true ]; then
     echo -e "${yellow}[METIS] Skipping web server user creation; web server user already exist.${reset}"
     return
   fi
@@ -378,7 +378,7 @@ EOL
 # Save credentials to a root-only file
 save_credentials() {
   # Skip saving if credentials already exist.
-  if [ "$CREDENTIALS_EXIST" = true ]; then
+  if [ "$CREDENTIALS_FOUND" = true ]; then
     echo -e "${yellow}[METIS] Credentials already exist. Skipping save.${reset}"
     return
   fi
