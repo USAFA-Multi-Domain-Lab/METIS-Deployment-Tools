@@ -11,7 +11,7 @@ function Write-Success     { Write-Host "[METIS] $($args -replace '^\[METIS\](\[
 function Write-MetisError  { Write-Host "[METIS][ERROR] $($args -replace '^\[METIS\](\[WARN\]|\[ERROR\])?\s*','')" -ForegroundColor Red }
 function Write-MetisWarning { Write-Host "[METIS][WARN] $($args -replace '^\[METIS\](\[WARN\]|\[ERROR\])?\s*','')" -ForegroundColor Yellow }
 
-# Default directory (using 8.3 short path to avoid issues with spaces)
+# Default directory (using 8.3 short path to avoid string concatenation issues with spaces)
 $METIS_INSTALL_DIR = "C:\PROGRA~1\METIS"
 
 # Store the starting directory to return to it at the end

@@ -12,7 +12,7 @@ function Write-MetisError   { Write-Host "[METIS][ERROR] $($args -replace '^\[ME
 function Write-MetisWarning { Write-Host "[METIS][WARN] $($args -replace '^\[METIS\](\[WARN\]|\[ERROR\])?\s*','')" -ForegroundColor Yellow }
 
 # Paths
-$METIS_INSTALL_DIR = "C:\Program Files\METIS"
+$METIS_INSTALL_DIR = "C:\PROGRA~1\METIS"
 $CREDENTIALS_FILE  = "$env:PROGRAMDATA\.metis-credentials.txt"
 $SERVICE_DATA_DIR  = "$env:PROGRAMDATA\METIS"
 $CLI_WRAPPER       = "C:\Windows\System32\metis.bat"
