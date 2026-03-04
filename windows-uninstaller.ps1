@@ -228,6 +228,27 @@ function Remove-METISInstallDir {
 
 # Uninstalls MongoDB via Chocolatey (optional).
 function Invoke-MongoDBUninstall {
+    # Stop MongoDB service before removing files so no handles are held open
+    $mongoService = Get-Service -Name MongoDB -ErrorAction SilentlyContinue
+    if ($mongoService) {
+        if ($mongoService.Status -eq 'Running') {
+            try {
+                Write-Success "Stopping MongoDB service before removal..."
+                Stop-Service -Name MongoDB -Force -ErrorAction Stop
+                Start-Sleep -Seconds 3
+                Write-Success "MongoDB service stopped."
+            } catch {
+                Write-MetisWarning "Could not stop MongoDB service: $_"
+            }
+        }
+        try {
+            & sc.exe delete MongoDB | Out-Null
+            Write-Success "MongoDB service entry removed."
+        } catch {
+            Write-MetisWarning "Could not remove MongoDB service entry: $_"
+        }
+    }
+
     Write-Success "Uninstalling MongoDB..."
     try {
         choco uninstall mongodb mongodb-shell mongodb-database-tools -y
