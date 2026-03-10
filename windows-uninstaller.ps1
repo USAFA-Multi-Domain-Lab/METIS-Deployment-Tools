@@ -239,6 +239,23 @@ function Invoke-MongoDBUninstall {
             NextSteps = "Run: choco uninstall mongodb mongodb-shell mongodb-database-tools -y"
         })
     }
+
+    # Chocolatey only removes binaries; the data directory in ProgramData is not touched
+    # by the uninstaller and must be removed manually so a fresh reinstall starts clean.
+    $mongoDataDir = "$env:PROGRAMDATA\MongoDB"
+    if (Test-Path $mongoDataDir) {
+        Write-Success "Removing MongoDB data directory ($mongoDataDir)..."
+        try {
+            Remove-Item -Path $mongoDataDir -Recurse -Force
+            Write-Success "Removed $mongoDataDir."
+        } catch {
+            Write-MetisWarning "Failed to remove MongoDB data directory: $_"
+            $null = $script:FAILED_STEPS.Add(@{
+                Step      = "MongoDB data directory"
+                NextSteps = "Manually delete: $mongoDataDir (contains auth data that will block a fresh reinstall)"
+            })
+        }
+    }
 }
 
 # Uninstalls Node.js via Chocolatey (optional).

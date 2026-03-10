@@ -495,6 +495,9 @@ Describe "Invoke-MongoDBUninstall" {
         Mock Write-Success {}
         Mock Write-MetisWarning {}
         Mock choco {}
+        Mock Remove-Item {}
+        # Default: data dir does not exist
+        Mock Test-Path { $false }
     }
 
     Context "choco uninstall succeeds" {
@@ -523,6 +526,52 @@ Describe "Invoke-MongoDBUninstall" {
         It "FAILED_STEPS entry has a non-empty NextSteps hint" {
             Invoke-MongoDBUninstall
             $script:FAILED_STEPS[0].NextSteps | Should -Not -BeNullOrEmpty
+        }
+    }
+
+    Context "MongoDB data directory exists and Remove-Item succeeds" {
+        BeforeEach {
+            Mock Test-Path { $true }
+        }
+
+        It "removes the data directory with -Recurse -Force" {
+            Invoke-MongoDBUninstall
+            Should -Invoke Remove-Item -Times 1 -ParameterFilter { $Recurse -eq $true -and $Force -eq $true }
+        }
+
+        It "does not add any FAILED_STEPS entries" {
+            Invoke-MongoDBUninstall
+            $script:FAILED_STEPS.Count | Should -Be 0
+        }
+    }
+
+    Context "MongoDB data directory exists but Remove-Item throws" {
+        BeforeEach {
+            Mock Test-Path { $true }
+            Mock Remove-Item { throw "Locked" }
+        }
+
+        It "adds a FAILED_STEPS entry for the data directory" {
+            Invoke-MongoDBUninstall
+            $script:FAILED_STEPS | Where-Object { $_.Step -match "MongoDB data directory" } | Should -Not -BeNullOrEmpty
+        }
+
+        It "FAILED_STEPS entry NextSteps mentions manual deletion" {
+            Invoke-MongoDBUninstall
+            $entry = $script:FAILED_STEPS | Where-Object { $_.Step -match "MongoDB data directory" }
+            $entry.NextSteps | Should -Match "Manually delete"
+        }
+    }
+
+    Context "MongoDB data directory does not exist" {
+        It "does not attempt to remove the data directory" {
+            Invoke-MongoDBUninstall
+            Should -Not -Invoke Remove-Item
+        }
+
+        It "does not add any FAILED_STEPS entries" {
+            Invoke-MongoDBUninstall
+            $script:FAILED_STEPS.Count | Should -Be 0
         }
     }
 }
