@@ -119,13 +119,13 @@ function Stop-OrphanedProcesses {
     $metisInstallResolved = if ($resolvedInstallPath) { $resolvedInstallPath.Path } else { $null }
     Get-Process -Name "node" -ErrorAction SilentlyContinue | ForEach-Object {
         try {
-            $processPath = $_.MainModule.FileName
+            $processPath = $_.Path
             if ($processPath -and ($processPath -like "*\METIS\*" -or ($metisInstallResolved -and $processPath -like "$metisInstallResolved*"))) {
                 Stop-Process -Id $_.Id -Force
                 Write-Success "Stopped METIS node process (PID $($_.Id))."
             }
         } catch {
-            # MainModule access can fail for protected processes; skip silently
+            # Process.Path access can fail for protected processes; skip silently
         }
     }
 }

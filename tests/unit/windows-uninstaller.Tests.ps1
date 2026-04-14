@@ -414,8 +414,8 @@ Describe "Stop-OrphanedProcesses" {
     Context "a node process is running from the METIS install directory" {
         It "calls Stop-Process on that process" {
             $fakeProcess = [PSCustomObject]@{
-                Id         = 1234
-                MainModule = [PSCustomObject]@{ FileName = "C:\Program Files\METIS\node_modules\.bin\node.exe" }
+                Id   = 1234
+                Path = "C:\Program Files\METIS\node_modules\.bin\node.exe"
             }
             Mock Get-Process { @($fakeProcess) }
 
@@ -428,8 +428,8 @@ Describe "Stop-OrphanedProcesses" {
     Context "a node process is running from an unrelated directory" {
         It "does not call Stop-Process" {
             $fakeProcess = [PSCustomObject]@{
-                Id         = 5678
-                MainModule = [PSCustomObject]@{ FileName = "C:\Users\Administrator\myapp\node.exe" }
+                Id   = 5678
+                Path = "C:\Users\Administrator\myapp\node.exe"
             }
             Mock Get-Process { @($fakeProcess) }
 
