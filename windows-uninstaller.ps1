@@ -115,7 +115,8 @@ function Remove-METISService {
 # Kill any node processes still running from the METIS install directory
 # so they don't hold file handles open during subsequent file deletion steps.
 function Stop-OrphanedProcesses {
-    $metisInstallResolved = (Resolve-Path $METIS_INSTALL_DIR -ErrorAction SilentlyContinue)?.Path
+    $resolvedInstallPath  = Resolve-Path $METIS_INSTALL_DIR -ErrorAction SilentlyContinue
+    $metisInstallResolved = if ($resolvedInstallPath) { $resolvedInstallPath.Path } else { $null }
     Get-Process -Name "node" -ErrorAction SilentlyContinue | ForEach-Object {
         try {
             $processPath = $_.MainModule.FileName
