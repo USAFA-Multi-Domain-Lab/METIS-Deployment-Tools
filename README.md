@@ -10,14 +10,14 @@ Instructions for running the installer scripts can be found [here](https://githu
 
 Tests for the Windows Installer and Uninstaller are written using [Pester](https://pester.dev/) and require PowerShell 7+ with the Pester module (v5.0+) installed.
 
-Install Pester if needed:
+Install Pester if needed. Run PowerShell as administrator and execute the following command:
 
 ```powershell
-Install-Module -Name Pester -MinimumVersion 5.0 -Force
+Install-Module -Name Pester -MinimumVersion 5.0 -Force -SkipPublisherCheck
 ```
 
-Run all tests from the repository root:
+Run all tests from the repository root in a PowerShell terminal:
 
 ```powershell
-pwsh ./tests/Run-Tests.ps1
+.\tests\Run-Tests.ps1
 ```
