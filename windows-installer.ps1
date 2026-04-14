@@ -338,7 +338,7 @@ db.createUser({
 
 # Web Server Setup
 function Install-NodeJS {
-    Write-Success "Installing NodeJS..."
+    Write-Success "Installing Node.js..."
 
     # Check current Node.js version if installed
     $nodeVersion = $null
@@ -357,7 +357,7 @@ function Install-NodeJS {
                 $isCompatible = ($nodeMajorVersion -eq 22 -and $nodeMinorVersion -ge 12) -or ($nodeMajorVersion -gt 22)
                 if (-not $isCompatible) {
                     Write-MetisWarning "Node.js $nodeVersion detected."
-                    Write-MetisWarning "METIS requires Node.js v22.12+ or higher. Your current version may cause compatibility issues."
+                    Write-MetisWarning "METIS requires Node.js v22.12 or higher. Your current version may cause compatibility issues."
                     Write-Host ""
                     $response = Read-Host "Therefore, would you like to install Node.js v22.21.1? (Y/n)"
                     if ($response -eq "" -or $response -eq "Y" -or $response -eq "y") {
@@ -434,7 +434,7 @@ function Install-NodeJS {
         $env:Path = "C:\Program Files\nodejs;" + $env:Path
     }
 
-    Write-Success "NodeJS installed."
+    Write-Success "Node.js installed."
 }
 
 function Setup-METIS {
@@ -603,9 +603,12 @@ npm run start
     & nssm set METIS AppStdout (Join-Path $logDir "metis-service.log")
     & nssm set METIS AppStderr (Join-Path $logDir "metis-service-error.log")
     
-    # Rotate logs to prevent them from growing too large
+    # Enable log rotation on service restart (files > 10 MB or > 24 h old)
     & nssm set METIS AppStdoutCreationDisposition 4
     & nssm set METIS AppStderrCreationDisposition 4
+    & nssm set METIS AppRotateFiles 1
+    & nssm set METIS AppRotateBytes 10485760
+    & nssm set METIS AppRotateSeconds 86400
 
     Write-Success "METIS service created and enabled to start on boot."
     Write-Success "Service logs will be written to $logDir"
@@ -649,9 +652,9 @@ function Start-METISService {
         Write-MetisWarning "This may be due to npm not being fully configured."
         Write-MetisWarning "Please restart your computer and then run: Start-Service METIS"
         Write-Host ""
-        Write-Host "To start the service manually after restart, run:"
+        Write-MetisWarning "To start the service manually after restart, run:"
         Write-Host "  Start-Service METIS" -ForegroundColor Cyan
-        Write-Host "Or to run METIS manually:"
+        Write-MetisWarning "Or to run METIS manually:"
         Write-Host "  cd $METIS_INSTALL_DIR" -ForegroundColor Cyan
         Write-Host "  npm start" -ForegroundColor Cyan
     }

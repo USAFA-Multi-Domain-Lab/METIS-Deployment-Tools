@@ -115,7 +115,7 @@ function Remove-METISMongoUser {
     $dropScript = @"
 use metis
 try { db.dropUser("$($script:METIS_USER)") } catch(e) {}
-db.getCollectionNames().forEach(function(c) { db.getCollection(c).drop() })
+db.dropDatabase()
 use admin
 try { db.dropUser("$($script:ADMIN_USER)") } catch(e) {}
 "@
@@ -134,7 +134,7 @@ try { db.dropUser("$($script:ADMIN_USER)") } catch(e) {}
         Write-MetisWarning "Failed to remove MongoDB user/database: $_"
         $null = $script:FAILED_STEPS.Add(@{
             Step      = "MongoDB user/database removal"
-            NextSteps = "Connect to mongosh and run: use metis / db.dropUser(`"`$(`$script:METIS_USER)`") / db.dropDatabase()"
+            NextSteps = "Connect to mongosh and run: use metis / db.dropUser(`"$($script:METIS_USER)`") / db.dropDatabase()"
         })
     }
 }
