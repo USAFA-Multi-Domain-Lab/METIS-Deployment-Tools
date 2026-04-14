@@ -120,6 +120,7 @@ function Stop-OrphanedProcesses {
     Get-Process -Name "node" -ErrorAction SilentlyContinue | ForEach-Object {
         try {
             $processPath = $_.Path
+            Write-Host "Checking process PID $($_.Id) with path: $processPath" -ForegroundColor Gray
             if ($processPath -and ($processPath -like "*\METIS\*" -or ($metisInstallResolved -and $processPath -like "$metisInstallResolved*"))) {
                 Stop-Process -Id $_.Id -Force
                 Write-Success "Stopped METIS node process (PID $($_.Id))."
