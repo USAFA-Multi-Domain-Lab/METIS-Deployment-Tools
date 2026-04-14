@@ -391,13 +391,14 @@ Describe "Remove-METISService" {
 }
 
 # ---------------------------------------------------------------------------
-# Stop-OrphanedProcesses
+# Stop-AllNodeProcesses
 # ---------------------------------------------------------------------------
-Describe "Stop-OrphanedProcesses" {
+Describe "Stop-AllNodeProcesses" {
 
     BeforeEach {
         Reset-ScriptState
         Mock Write-Success {}
+        Mock Write-MetisWarning {}
         Mock Stop-Process {}
     }
 
@@ -405,37 +406,20 @@ Describe "Stop-OrphanedProcesses" {
         It "does not call Stop-Process" {
             Mock Get-Process { @() }
 
-            Stop-OrphanedProcesses
+            Stop-AllNodeProcesses
 
             Should -Not -Invoke Stop-Process
         }
     }
 
-    Context "a node process is running from the METIS install directory" {
-        It "calls Stop-Process on that process" {
-            $fakeProcess = [PSCustomObject]@{
-                Id   = 1234
-                Path = "C:\Program Files\METIS\node_modules\.bin\node.exe"
-            }
+    Context "node processes are running" {
+        It "stops all of them" {
+            $fakeProcess = [PSCustomObject]@{ Id = 1234 }
             Mock Get-Process { @($fakeProcess) }
 
-            Stop-OrphanedProcesses
+            Stop-AllNodeProcesses
 
             Should -Invoke Stop-Process -Times 1 -ParameterFilter { $Id -eq 1234 }
-        }
-    }
-
-    Context "a node process is running from an unrelated directory" {
-        It "does not call Stop-Process" {
-            $fakeProcess = [PSCustomObject]@{
-                Id   = 5678
-                Path = "C:\Users\Administrator\myapp\node.exe"
-            }
-            Mock Get-Process { @($fakeProcess) }
-
-            Stop-OrphanedProcesses
-
-            Should -Not -Invoke Stop-Process
         }
     }
 }
@@ -562,7 +546,7 @@ Describe "Remove-METISInstallDir" {
         }
     }
 
-    Context "Remove-Item throws" {
+    Context "Remove-Item throws a generic error" {
         It "adds an error entry to FAILED_STEPS" {
             Mock Test-Path { $true }
             Mock Remove-Item { throw "Access denied" }
@@ -571,6 +555,42 @@ Describe "Remove-METISInstallDir" {
 
             $script:FAILED_STEPS.Count | Should -Be 1
             $script:FAILED_STEPS[0].Step | Should -Match "installation directory"
+        }
+    }
+
+    Context "Remove-Item throws a locked-file error and user confirms kill" {
+        It "kills node processes, retries, and succeeds" {
+            $script:removeCallCount = 0
+            $script:dirExists = $true
+            Mock Test-Path { $script:dirExists }
+            Mock Read-Host { 'y' }
+            Mock Stop-AllNodeProcesses {}
+            Mock Remove-Item {
+                $script:removeCallCount++
+                if ($script:removeCallCount -eq 1) {
+                    throw "The process cannot access the file because it is being used by another process."
+                }
+                $script:dirExists = $false
+            }
+
+            Remove-METISInstallDir
+
+            Should -Invoke Stop-AllNodeProcesses -Times 1
+            $script:FAILED_STEPS.Count | Should -Be 0
+        }
+    }
+
+    Context "Remove-Item throws a locked-file error and user declines kill" {
+        It "adds to FAILED_STEPS without killing node processes" {
+            Mock Test-Path { $true }
+            Mock Read-Host { 'n' }
+            Mock Stop-AllNodeProcesses {}
+            Mock Remove-Item { throw "The process cannot access the file because it is being used by another process." }
+
+            Remove-METISInstallDir
+
+            Should -Not -Invoke Stop-AllNodeProcesses
+            $script:FAILED_STEPS.Count | Should -Be 1
         }
     }
 }

@@ -112,21 +112,16 @@ function Remove-METISService {
     }
 }
 
-# Kill any node processes still running from the METIS install directory
-# so they don't hold file handles open during subsequent file deletion steps.
-function Stop-OrphanedProcesses {
-    $resolvedInstallPath  = Resolve-Path $METIS_INSTALL_DIR -ErrorAction SilentlyContinue
-    $metisInstallResolved = if ($resolvedInstallPath) { $resolvedInstallPath.Path } else { $null }
+# Kill all running node.exe processes.
+function Stop-AllNodeProcesses {
+    Write-Success "Stopping all Node.js processes..." 
+
     Get-Process -Name "node" -ErrorAction SilentlyContinue | ForEach-Object {
         try {
-            $processPath = $_.Path
-            Write-Host "Checking process PID $($_.Id) with path: $processPath" -ForegroundColor Gray
-            if ($processPath -and ($processPath -like "*\METIS\*" -or ($metisInstallResolved -and $processPath -like "$metisInstallResolved*"))) {
-                Stop-Process -Id $_.Id -Force
-                Write-Success "Stopped METIS node process (PID $($_.Id))."
-            }
+            Stop-Process -Id $_.Id -Force
+            Write-Success "Stopped Node.js process (PID $($_.Id))."
         } catch {
-            # Process.Path access can fail for protected processes; skip silently
+            Write-MetisWarning "Could not stop Node.js process (PID $($_.Id)): $_"
         }
     }
 }
@@ -241,17 +236,53 @@ function Remove-METISCLIWrapper {
 }
 
 # Deletes the METIS installation directory (last -- CLI lives here).
+# If a file lock is detected, prompts the user to kill all Node.js 
+# processes and retries.
 function Remove-METISInstallDir {
+    param (
+        $retrying = $false
+    )
+
     Write-Success "Removing METIS installation directory..."
+
     if (Test-Path $METIS_INSTALL_DIR) {
         try {
+            # Attempt deletion.
             Remove-Item -Path $METIS_INSTALL_DIR -Recurse -Force -ErrorAction Stop
             Write-Success "Removed $METIS_INSTALL_DIR."
         } catch {
-            Write-MetisError "Failed to remove ${METIS_INSTALL_DIR}: $_"
+            # If this is the second failure, give up and report the error.
+            if ($retrying) {
+                Write-MetisError "Failed to remove ${METIS_INSTALL_DIR} after retry: $_"
+            }
+            # If the first failure, check if it's a file lock issue.
+            # Then prompt to kill Node.js processes to free up files.
+            elseif ($_ -match "being used by another process") {
+                Write-MetisWarning "A file in $METIS_INSTALL_DIR is locked by another process."
+                $killNodes = Read-Host "Kill all Node.js processes and retry? (Y/n)"
+
+                # If user agrees, kill Node.js processes and retry deletion once.
+                if ($killNodes -eq '' -or $killNodes -eq 'y' -or $killNodes -eq 'Y') {
+                    Stop-AllNodeProcesses
+                    # Call recursively to attempt process again.
+                    # The $retrying flag will prevent an infinite 
+                    # loop.
+                    Remove-METISInstallDir $true
+                    return
+                } else {
+                    Write-MetisWarning "Skipping kill step. You will need to manually close any applications using files in $METIS_INSTALL_DIR before deleting it."
+                }
+            } else {
+                Write-MetisError "Failed to remove ${METIS_INSTALL_DIR}: $_"
+            }
+        }
+
+        # If the directory still exists, add a failed step
+        # for manual deletion.
+        if (Test-Path $METIS_INSTALL_DIR) {
             $null = $script:FAILED_STEPS.Add(@{
                 Step      = "METIS installation directory"
-                NextSteps = "Manually delete: $METIS_INSTALL_DIR"
+                NextSteps = "Manually delete: $METIS_INSTALL_DIR (close any applications that may be using files in this directory, such as code editors or terminals)"
             })
         }
     } else {
@@ -346,7 +377,6 @@ if ($service) {
 } else {
     Write-MetisWarning "METIS service not found. Skipping service stop and removal steps..."
 }
-Stop-OrphanedProcesses
 
 Remove-METISMongoUser
 Remove-METISFiles
