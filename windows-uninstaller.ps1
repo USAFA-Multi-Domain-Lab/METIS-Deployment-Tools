@@ -168,14 +168,50 @@ try { db.dropUser("$($script:ADMIN_USER)") } catch(e) {}
 }
 
 # Deletes the METIS service data directory (logs, startup batch).
+# If a file lock is detected, prompts the user to kill all Node.js
+# processes and retries.
 function Remove-METISFiles {
+    param (
+        $retrying = $false
+    )
+
     Write-Success "Removing METIS service data directory..."
+
     if (Test-Path $SERVICE_DATA_DIR) {
         try {
+            # Attempt deletion.
             Remove-Item -Path $SERVICE_DATA_DIR -Recurse -Force -ErrorAction Stop
             Write-Success "Removed $SERVICE_DATA_DIR."
         } catch {
-            Write-MetisWarning "Failed to remove ${SERVICE_DATA_DIR}: $_"
+            # If this is the second failure, give up and report the error.
+            if ($retrying) {
+                Write-MetisError "Failed to remove ${SERVICE_DATA_DIR} after retry: $_"
+            }
+            # If the first failure, check if it's a file lock issue.
+            # Then prompt to kill Node.js processes to free up files.
+            elseif ($_ -match "being used by another process") {
+                Write-MetisWarning "A file in $SERVICE_DATA_DIR is locked by another process."
+                $killNodes = Read-Host "Kill all Node.js processes and retry? (Y/n)"
+
+                # If user agrees, kill Node.js processes and retry deletion once.
+                if ($killNodes -eq '' -or $killNodes -eq 'y' -or $killNodes -eq 'Y') {
+                    Stop-AllNodeProcesses
+                    # Call recursively to attempt process again.
+                    # The $retrying flag will prevent an infinite
+                    # loop.
+                    Remove-METISFiles $true
+                    return
+                } else {
+                    Write-MetisWarning "Skipping kill step. You will need to manually close any applications using files in $SERVICE_DATA_DIR before deleting it."
+                }
+            } else {
+                Write-MetisWarning "Failed to remove ${SERVICE_DATA_DIR}: $_"
+            }
+        }
+
+        # If the directory still exists, add a failed step
+        # for manual deletion.
+        if (Test-Path $SERVICE_DATA_DIR) {
             $null = $script:FAILED_STEPS.Add(@{
                 Step      = "METIS service data directory"
                 NextSteps = "Manually delete: $SERVICE_DATA_DIR"

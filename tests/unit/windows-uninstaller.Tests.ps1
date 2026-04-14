@@ -433,6 +433,8 @@ Describe "Remove-METISFiles" {
         Reset-ScriptState
         Mock Write-Success {}
         Mock Write-MetisWarning {}
+        Mock Write-MetisError {}
+        Mock Stop-AllNodeProcesses {}
         Mock Remove-Item {}
     }
 
@@ -456,13 +458,60 @@ Describe "Remove-METISFiles" {
         }
     }
 
-    Context "Remove-Item throws" {
+    Context "Remove-Item throws a generic error" {
         It "adds one FAILED_STEPS entry" {
             Mock Test-Path { $true }
-            Mock Remove-Item { throw "Locked" }
+            Mock Remove-Item { throw "Access denied" }
 
             Remove-METISFiles
 
+            $script:FAILED_STEPS.Count | Should -Be 1
+        }
+    }
+
+    Context "Remove-Item throws a locked-file error and user confirms kill" {
+        It "kills node processes, retries, and succeeds" {
+            $script:removeCallCount = 0
+            $script:dirExists = $true
+            Mock Test-Path { $script:dirExists }
+            Mock Read-Host { 'y' }
+            Mock Remove-Item {
+                $script:removeCallCount++
+                if ($script:removeCallCount -eq 1) {
+                    throw "The process cannot access the file because it is being used by another process."
+                }
+                $script:dirExists = $false
+            }
+
+            Remove-METISFiles
+
+            Should -Invoke Stop-AllNodeProcesses -Times 1
+            $script:FAILED_STEPS.Count | Should -Be 0
+        }
+    }
+
+    Context "Remove-Item throws a locked-file error and user declines kill" {
+        It "adds to FAILED_STEPS without killing node processes" {
+            Mock Test-Path { $true }
+            Mock Read-Host { 'n' }
+            Mock Remove-Item { throw "The process cannot access the file because it is being used by another process." }
+
+            Remove-METISFiles
+
+            Should -Not -Invoke Stop-AllNodeProcesses
+            $script:FAILED_STEPS.Count | Should -Be 1
+        }
+    }
+
+    Context "Remove-Item throws a locked-file error and user confirms kill, retry also fails" {
+        It "adds to FAILED_STEPS after retry failure" {
+            Mock Test-Path { $true }
+            Mock Read-Host { 'y' }
+            Mock Remove-Item { throw "The process cannot access the file because it is being used by another process." }
+
+            Remove-METISFiles
+
+            Should -Invoke Stop-AllNodeProcesses -Times 1
             $script:FAILED_STEPS.Count | Should -Be 1
         }
     }
