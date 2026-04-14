@@ -61,24 +61,38 @@ function Read-METISCredentials {
     Write-Success "Credentials loaded."
 }
 
-# Stops and removes the NSSM METIS Windows service.
-function Remove-METISService {
-    Write-Success "Removing METIS service..."
+# Retrieves the METIS Windows service object, or $null if not found.
+function Get-METISService {
+    return Get-Service -Name "METIS" -ErrorAction SilentlyContinue
+}
 
-    $service = Get-Service -Name "METIS" -ErrorAction SilentlyContinue
-    if (-not $service) {
-        Write-MetisWarning "METIS service not found. Skipping..."
+# Stops the METIS service provided, if it is running.
+function Stop-METISService {
+    param (
+        $service
+    )
+    Write-Success "Stopping METIS service..."
+
+    # Confirm service is running before stopping.
+    if ($service.Status -ne 'Running') {
+        Write-MetisWarning "METIS service is not running. Current status: $($service.Status). Skipping stop step..."
         return
     }
 
-    if ($service.Status -eq 'Running') {
-        try {
-            Stop-Service -Name "METIS" -Force -ErrorAction Stop
-            Write-Success "METIS service stopped."
-        } catch {
-            Write-MetisWarning "Could not stop METIS service: $_"
-        }
+    # Attempt stop.
+    try {
+        Stop-Service -Name "METIS" -Force -ErrorAction Stop
+        Write-Success "METIS service stopped."
+    } catch {
+        Write-MetisWarning "Could not stop METIS service: $_"
     }
+}
+
+
+# Finds and removes the METIS Window service using NSSM 
+# if available, or sc.exe as a fallback.
+function Remove-METISService {
+    Write-Success "Removing METIS service..."
 
     try {
         if (Get-Command nssm -ErrorAction SilentlyContinue) {
@@ -95,6 +109,23 @@ function Remove-METISService {
             Step      = "METIS service removal"
             NextSteps = "Kill any running METIS processes, then run: sc.exe delete METIS"
         })
+    }
+}
+
+# Kill any node processes still running from the METIS install directory
+# so they don't hold file handles open during subsequent file deletion steps.
+function Stop-OrphanedProcesses {
+    $metisInstallResolved = (Resolve-Path $METIS_INSTALL_DIR -ErrorAction SilentlyContinue)?.Path
+    Get-Process -Name "node" -ErrorAction SilentlyContinue | ForEach-Object {
+        try {
+            $processPath = $_.MainModule.FileName
+            if ($processPath -and ($processPath -like "*\METIS\*" -or ($metisInstallResolved -and $processPath -like "$metisInstallResolved*"))) {
+                Stop-Process -Id $_.Id -Force
+                Write-Success "Stopped METIS node process (PID $($_.Id))."
+            }
+        } catch {
+            # MainModule access can fail for protected processes; skip silently
+        }
     }
 }
 
@@ -144,7 +175,7 @@ function Remove-METISFiles {
     Write-Success "Removing METIS service data directory..."
     if (Test-Path $SERVICE_DATA_DIR) {
         try {
-            Remove-Item -Path $SERVICE_DATA_DIR -Recurse -Force
+            Remove-Item -Path $SERVICE_DATA_DIR -Recurse -Force -ErrorAction Stop
             Write-Success "Removed $SERVICE_DATA_DIR."
         } catch {
             Write-MetisWarning "Failed to remove ${SERVICE_DATA_DIR}: $_"
@@ -212,7 +243,7 @@ function Remove-METISInstallDir {
     Write-Success "Removing METIS installation directory..."
     if (Test-Path $METIS_INSTALL_DIR) {
         try {
-            Remove-Item -Path $METIS_INSTALL_DIR -Recurse -Force
+            Remove-Item -Path $METIS_INSTALL_DIR -Recurse -Force -ErrorAction Stop
             Write-Success "Removed $METIS_INSTALL_DIR."
         } catch {
             Write-MetisError "Failed to remove ${METIS_INSTALL_DIR}: $_"
@@ -300,9 +331,21 @@ if ($confirm -ne 'y' -and $confirm -ne 'Y') {
     exit 0
 }
 
+
 Write-Host ""
 Read-METISCredentials
-Remove-METISService
+
+# Perform clean up of the METIS service.
+$service = Get-METISService
+
+if ($service) {
+    Stop-METISService $service
+    Remove-METISService
+} else {
+    Write-MetisWarning "METIS service not found. Skipping service stop and removal steps..."
+}
+Stop-OrphanedProcesses
+
 Remove-METISMongoUser
 Remove-METISFiles
 Remove-METISCredentials

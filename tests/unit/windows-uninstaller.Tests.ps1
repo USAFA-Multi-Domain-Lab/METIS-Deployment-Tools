@@ -9,6 +9,8 @@ BeforeAll {
     # Pester's Mock can intercept them during tests.
     function global:Get-Service    { param([string]$Name, $ErrorAction) $null }
     function global:Stop-Service   { param([string]$Name, [switch]$Force, $ErrorAction) }
+    function global:Get-Process    { param([string]$Name, $ErrorAction) @() }
+    function global:Stop-Process   { param([int]$Id, [switch]$Force) }
     function global:Get-Acl        { param([string]$Path) [PSCustomObject]@{} }
     function global:Set-Acl        { param([string]$Path, $AclObject) }
     function global:nssm           { param() }
@@ -260,6 +262,89 @@ Describe "Remove-METISMongoUser" {
 }
 
 # ---------------------------------------------------------------------------
+# Get-METISService
+# ---------------------------------------------------------------------------
+Describe "Get-METISService" {
+
+    BeforeEach {
+        Reset-ScriptState
+    }
+
+    Context "METIS service exists" {
+        It "returns the service object" {
+            Mock Get-Service { [PSCustomObject]@{ Name = "METIS"; Status = "Running" } }
+
+            $result = Get-METISService
+
+            $result | Should -Not -BeNullOrEmpty
+        }
+    }
+
+    Context "METIS service does not exist" {
+        It "returns null" {
+            Mock Get-Service { $null }
+
+            $result = Get-METISService
+
+            $result | Should -BeNullOrEmpty
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Stop-METISService
+# ---------------------------------------------------------------------------
+Describe "Stop-METISService" {
+
+    BeforeEach {
+        Reset-ScriptState
+        Mock Write-Success {}
+        Mock Write-MetisWarning {}
+        Mock Stop-Service {}
+    }
+
+    Context "service is Running" {
+        It "calls Stop-Service once" {
+            $service = [PSCustomObject]@{ Status = "Running" }
+
+            Stop-METISService $service
+
+            Should -Invoke Stop-Service -Times 1 -ParameterFilter { $Name -eq "METIS" }
+        }
+    }
+
+    Context "service is Stopped" {
+        It "does not call Stop-Service" {
+            $service = [PSCustomObject]@{ Status = "Stopped" }
+
+            Stop-METISService $service
+
+            Should -Not -Invoke Stop-Service
+        }
+
+        It "emits a warning mentioning the current status" {
+            $service = [PSCustomObject]@{ Status = "Stopped" }
+
+            Stop-METISService $service
+
+            Should -Invoke Write-MetisWarning -ParameterFilter { "$args" -match "Stopped" }
+        }
+    }
+
+    Context "Stop-Service throws" {
+        It "emits a warning and does not add to FAILED_STEPS" {
+            $service = [PSCustomObject]@{ Status = "Running" }
+            Mock Stop-Service { throw "Access denied" }
+
+            Stop-METISService $service
+
+            Should -Invoke Write-MetisWarning
+            $script:FAILED_STEPS.Count | Should -Be 0
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Remove-METISService
 # ---------------------------------------------------------------------------
 Describe "Remove-METISService" {
@@ -269,54 +354,88 @@ Describe "Remove-METISService" {
         Mock Write-Success {}
         Mock Write-MetisWarning {}
         Mock Write-MetisError {}
-        # Stub Stop-Service so Should -Not -Invoke is valid in every Context
-        Mock Stop-Service {}
         Mock nssm {}
     }
 
-    Context "METIS service does not exist" {
-        It "emits a warning and returns without stopping or removing" {
-            Mock Get-Service { $null }
-
-            Remove-METISService
-
-            Should -Invoke Write-MetisWarning -ParameterFilter { "$args" -match "not found" }
-            Should -Not -Invoke Stop-Service
-        }
-    }
-
-    Context "service exists and is Running" {
-        It "calls Stop-Service before removal" {
-            Mock Get-Service { [PSCustomObject]@{ Status = 'Running' } }
+    Context "nssm is available" {
+        It "calls nssm to remove the service" {
             Mock Get-Command { [PSCustomObject]@{ Name = "nssm" } }
 
             Remove-METISService
 
-            Should -Invoke Stop-Service -Times 1 -ParameterFilter { $Name -eq "METIS" }
+            Should -Invoke nssm -Times 1
         }
     }
 
-    Context "service exists and is Stopped" {
-        It "does not call Stop-Service" {
-            Mock Get-Service { [PSCustomObject]@{ Status = 'Stopped' } }
-            Mock Get-Command { [PSCustomObject]@{ Name = "nssm" } }
+    Context "nssm is not available" {
+        It "does not call nssm" {
+            Mock Get-Command { $null }
 
             Remove-METISService
 
-            Should -Not -Invoke Stop-Service
+            Should -Not -Invoke nssm
         }
     }
 
     Context "removal throws an exception" {
-        It "adds an entry to FAILED_STEPS" {
-            Mock Get-Service { [PSCustomObject]@{ Status = 'Stopped' } }
+        It "adds one entry to FAILED_STEPS mentioning 'service'" {
             Mock Get-Command { [PSCustomObject]@{ Name = "nssm" } }
             Mock nssm { throw "Access denied" }
 
             Remove-METISService
 
-            $script:FAILED_STEPS.Count | Should -BeGreaterThan 0
+            $script:FAILED_STEPS.Count | Should -Be 1
             $script:FAILED_STEPS[0].Step | Should -Match "service"
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Stop-OrphanedProcesses
+# ---------------------------------------------------------------------------
+Describe "Stop-OrphanedProcesses" {
+
+    BeforeEach {
+        Reset-ScriptState
+        Mock Write-Success {}
+        Mock Stop-Process {}
+    }
+
+    Context "no node processes are running" {
+        It "does not call Stop-Process" {
+            Mock Get-Process { @() }
+
+            Stop-OrphanedProcesses
+
+            Should -Not -Invoke Stop-Process
+        }
+    }
+
+    Context "a node process is running from the METIS install directory" {
+        It "calls Stop-Process on that process" {
+            $fakeProcess = [PSCustomObject]@{
+                Id         = 1234
+                MainModule = [PSCustomObject]@{ FileName = "C:\Program Files\METIS\node_modules\.bin\node.exe" }
+            }
+            Mock Get-Process { @($fakeProcess) }
+
+            Stop-OrphanedProcesses
+
+            Should -Invoke Stop-Process -Times 1 -ParameterFilter { $Id -eq 1234 }
+        }
+    }
+
+    Context "a node process is running from an unrelated directory" {
+        It "does not call Stop-Process" {
+            $fakeProcess = [PSCustomObject]@{
+                Id         = 5678
+                MainModule = [PSCustomObject]@{ FileName = "C:\Users\Administrator\myapp\node.exe" }
+            }
+            Mock Get-Process { @($fakeProcess) }
+
+            Stop-OrphanedProcesses
+
+            Should -Not -Invoke Stop-Process
         }
     }
 }
