@@ -1,4 +1,4 @@
-#Requires -Modules Pester
+﻿#Requires -Modules Pester
 # Unit tests for windows-uninstaller.ps1
 # Run via: pwsh ./tests/Run-Tests.ps1
 
