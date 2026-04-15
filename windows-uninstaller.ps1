@@ -397,39 +397,22 @@ function Invoke-MongoDBUninstall {
         })
     }
 
-    # Chocolatey may leave the installation directory behind; remove it to ensure
-    # mongod.exe is gone and a fresh reinstall starts clean.
-    # $mongoInstallDir = "C:\Program Files\MongoDB"
-    # if (Test-Path $mongoInstallDir) {
-    #     Write-Success "Removing MongoDB installation directory ($mongoInstallDir)..."
-    #     try {
-    #         Remove-Item -Path $mongoInstallDir -Recurse -Force
-    #         Write-Success "Removed $mongoInstallDir."
-    #     } catch {
-    #         Write-MetisWarning "Failed to remove MongoDB installation directory: $_"
-    #         $null = $script:FAILED_STEPS.Add(@{
-    #             Step      = "MongoDB installation directory"
-    #             NextSteps = "Manually delete: $mongoInstallDir"
-    #         })
-    #     }
-    # }
-
     # The data directory in ProgramData is not touched by the uninstaller
     # and must be removed so a fresh reinstall starts clean.
-    # $mongoDataDir = "$env:PROGRAMDATA\MongoDB"
-    # if (Test-Path $mongoDataDir) {
-    #     Write-Success "Removing MongoDB data directory ($mongoDataDir)..."
-    #     try {
-    #         Remove-Item -Path $mongoDataDir -Recurse -Force
-    #         Write-Success "Removed $mongoDataDir."
-    #     } catch {
-    #         Write-MetisWarning "Failed to remove MongoDB data directory: $_"
-    #         $null = $script:FAILED_STEPS.Add(@{
-    #             Step      = "MongoDB data directory"
-    #             NextSteps = "Manually delete: $mongoDataDir (contains auth data that will block a fresh reinstall)"
-    #         })
-    #     }
-    # }
+    $mongoDataDir = "$env:PROGRAMDATA\MongoDB"
+    if (Test-Path $mongoDataDir) {
+        Write-Success "Removing MongoDB data directory ($mongoDataDir)..."
+        try {
+            Remove-Item -Path $mongoDataDir -Recurse -Force
+            Write-Success "Removed $mongoDataDir."
+        } catch {
+            Write-MetisWarning "Failed to remove MongoDB data directory: $_"
+            $null = $script:FAILED_STEPS.Add(@{
+                Step      = "MongoDB data directory"
+                NextSteps = "Manually delete: $mongoDataDir (contains auth data that will block a fresh reinstall)"
+            })
+        }
+    }
 }
 
 # Searches the Windows registry for the Node.js MSI uninstall entry.
