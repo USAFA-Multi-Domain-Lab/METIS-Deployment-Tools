@@ -16,7 +16,8 @@ BeforeAll {
     function global:nssm           { param() }
     function global:sc.exe         { param() }  # defined via alias below
     function global:mongosh        { param() }
-    function global:choco          { param() }
+    function global:choco                  { param() }
+    function global:Get-NodeJSUninstallEntry { param() $null }
 
     # sc.exe has a dot — register it on the Function: drive
     Set-Item -Path "Function:global:Invoke-ScExe" -Value { }
@@ -259,6 +260,73 @@ Describe "Remove-METISMongoUser" {
             $script:MONGO_DROP_SUCCEEDED | Should -Be $false
         }
     }
+
+    Context "credentials parsed, mongosh present, drop succeeds" {
+        BeforeEach {
+            $script:CREDENTIALS_PARSED = $true
+            $script:ADMIN_USER = "admin"
+            $script:ADMIN_PASS = "adminpass"
+            $script:METIS_USER = "metis"
+            $script:METIS_PASS = "metispass"
+            Mock Get-Command { [PSCustomObject]@{ Name = "mongosh" } }
+            Mock mongosh {}
+        }
+
+        It "sets MONGO_DROP_SUCCEEDED to true" {
+            Remove-METISMongoUser
+            $script:MONGO_DROP_SUCCEEDED | Should -Be $true
+        }
+
+        It "does not add any FAILED_STEPS entries" {
+            Remove-METISMongoUser
+            $script:FAILED_STEPS.Count | Should -Be 0
+        }
+    }
+
+    Context "credentials parsed, mongosh present, output contains MongoServerError" {
+        BeforeEach {
+            $script:CREDENTIALS_PARSED = $true
+            $script:ADMIN_USER = "admin"
+            $script:ADMIN_PASS = "adminpass"
+            $script:METIS_USER = "metis"
+            $script:METIS_PASS = "metispass"
+            Mock Get-Command { [PSCustomObject]@{ Name = "mongosh" } }
+            Mock mongosh { "MongoServerError: Authentication failed" }
+        }
+
+        It "does not set MONGO_DROP_SUCCEEDED" {
+            Remove-METISMongoUser
+            $script:MONGO_DROP_SUCCEEDED | Should -Be $false
+        }
+
+        It "emits a warning mentioning MongoServerError" {
+            Remove-METISMongoUser
+            Should -Invoke Write-MetisWarning -ParameterFilter { "$args" -match "MongoDB reported an error" }
+        }
+    }
+
+    Context "credentials parsed, mongosh present, mongosh throws" {
+        BeforeEach {
+            $script:CREDENTIALS_PARSED = $true
+            $script:ADMIN_USER = "admin"
+            $script:ADMIN_PASS = "adminpass"
+            $script:METIS_USER = "metis"
+            $script:METIS_PASS = "metispass"
+            Mock Get-Command { [PSCustomObject]@{ Name = "mongosh" } }
+            Mock mongosh { throw "Connection refused" }
+        }
+
+        It "adds a FAILED_STEPS entry for MongoDB user removal" {
+            Remove-METISMongoUser
+            $script:FAILED_STEPS.Count | Should -Be 1
+            $script:FAILED_STEPS[0].Step | Should -Match "MongoDB user"
+        }
+
+        It "does not set MONGO_DROP_SUCCEEDED" {
+            Remove-METISMongoUser
+            $script:MONGO_DROP_SUCCEEDED | Should -Be $false
+        }
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -400,6 +468,7 @@ Describe "Stop-AllNodeProcesses" {
         Mock Write-Success {}
         Mock Write-MetisWarning {}
         Mock Stop-Process {}
+        Mock Start-Sleep {}
     }
 
     Context "no node processes are running" {
@@ -413,13 +482,32 @@ Describe "Stop-AllNodeProcesses" {
     }
 
     Context "node processes are running" {
-        It "stops all of them" {
+        It "stops all of them and waits for them to exit" {
+            $script:getProcessCallCount = 0
             $fakeProcess = [PSCustomObject]@{ Id = 1234 }
-            Mock Get-Process { @($fakeProcess) }
+            Mock Get-Process {
+                $script:getProcessCallCount++
+                if ($script:getProcessCallCount -eq 1) { @($fakeProcess) } else { @() }
+            }
 
             Stop-AllNodeProcesses
 
             Should -Invoke Stop-Process -Times 1 -ParameterFilter { $Id -eq 1234 }
+        }
+    }
+
+    Context "node processes linger after kill, then exit" {
+        It "polls until all processes have exited" {
+            $script:getProcessCallCount = 0
+            $fakeProcess = [PSCustomObject]@{ Id = 1234 }
+            Mock Get-Process {
+                $script:getProcessCallCount++
+                if ($script:getProcessCallCount -le 3) { @($fakeProcess) } else { @() }
+            }
+
+            Stop-AllNodeProcesses
+
+            Should -Invoke Start-Sleep -Times 2
         }
     }
 }
@@ -642,6 +730,20 @@ Describe "Remove-METISInstallDir" {
             $script:FAILED_STEPS.Count | Should -Be 1
         }
     }
+
+    Context "Remove-Item throws a locked-file error and user confirms kill, retry also fails" {
+        It "adds to FAILED_STEPS after retry failure" {
+            Mock Test-Path { $true }
+            Mock Read-Host { 'y' }
+            Mock Stop-AllNodeProcesses {}
+            Mock Remove-Item { throw "The process cannot access the file because it is being used by another process." }
+
+            Remove-METISInstallDir
+
+            Should -Invoke Stop-AllNodeProcesses -Times 1
+            $script:FAILED_STEPS.Count | Should -Be 1
+        }
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -760,6 +862,60 @@ Describe "Invoke-MongoDBUninstall" {
         It "does not add any FAILED_STEPS entries" {
             Invoke-MongoDBUninstall
             $script:FAILED_STEPS.Count | Should -Be 0
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Invoke-NodeJSUninstall
+# ---------------------------------------------------------------------------
+Describe "Invoke-NodeJSUninstall" {
+
+    BeforeEach {
+        Reset-ScriptState
+        Mock Write-Success {}
+        Mock Write-MetisWarning {}
+        Mock Start-Process { [PSCustomObject]@{ ExitCode = 0 } }
+        Mock choco {}
+    }
+
+    Context "MSI entry found and msiexec succeeds" {
+        It "calls Start-Process with msiexec /x and does not add FAILED_STEPS" {
+            $fakeEntry = [PSCustomObject]@{ PSChildName = "{FAKE-GUID-1234}"; DisplayName = "Node.js v22.21.1" }
+            Mock Get-NodeJSUninstallEntry { $fakeEntry }
+            Invoke-NodeJSUninstall
+            Should -Invoke Start-Process -Times 1 -ParameterFilter { $FilePath -eq "msiexec.exe" }
+            $script:FAILED_STEPS.Count | Should -Be 0
+        }
+    }
+
+    Context "MSI entry found but Start-Process throws" {
+        It "adds a FAILED_STEPS entry for Node.js uninstall" {
+            $fakeEntry = [PSCustomObject]@{ PSChildName = "{FAKE-GUID-1234}"; DisplayName = "Node.js v22.21.1" }
+            Mock Get-NodeJSUninstallEntry { $fakeEntry }
+            Mock Start-Process { throw "msiexec failed" }
+            Invoke-NodeJSUninstall
+            $script:FAILED_STEPS.Count | Should -Be 1
+            $script:FAILED_STEPS[0].Step | Should -Match "Node.js uninstall"
+        }
+    }
+
+    Context "MSI entry not found, choco fallback succeeds" {
+        It "calls choco as fallback and does not add FAILED_STEPS" {
+            Mock Get-NodeJSUninstallEntry { $null }
+            Invoke-NodeJSUninstall
+            Should -Invoke choco -Times 1
+            $script:FAILED_STEPS.Count | Should -Be 0
+        }
+    }
+
+    Context "MSI entry not found, choco fallback throws" {
+        It "adds a FAILED_STEPS entry for Node.js uninstall" {
+            Mock Get-NodeJSUninstallEntry { $null }
+            Mock choco { throw "Package not found" }
+            Invoke-NodeJSUninstall
+            $script:FAILED_STEPS.Count | Should -Be 1
+            $script:FAILED_STEPS[0].Step | Should -Match "Node.js uninstall"
         }
     }
 }
