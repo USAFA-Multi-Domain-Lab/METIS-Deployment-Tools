@@ -335,6 +335,19 @@ function Remove-METISInstallDir {
     }
 }
 
+# Searches the Windows registry for a MongoDB installation entry.
+# Returns the entry object, or $null if MongoDB is not installed.
+function Get-MongoDBInstallEntry {
+    $registryPaths = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+    )
+    return Get-ChildItem -Path $registryPaths -ErrorAction SilentlyContinue |
+        Get-ItemProperty -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -like "MongoDB*" } |
+        Select-Object -First 1
+}
+
 # Returns all MongoDB-related packages currently registered with Chocolatey.
 # Returns an empty array if none are found.
 function Get-MongoDBChocoPackages {
@@ -492,25 +505,32 @@ Remove-METISInstallDir
 
 Write-Host ""
 
-$mongoPackages = Get-MongoDBChocoPackages
-if ($mongoPackages) {
+$mongoInstalled = (Get-MongoDBInstallEntry) -or (Get-Command mongod -ErrorAction SilentlyContinue)
+if (-not $mongoInstalled) {
+    Write-Success "MongoDB is not installed. Skipping MongoDB removal."
+} elseif (Get-MongoDBChocoPackages) {
     $removeMongo = Read-Host "Remove MongoDB (choco uninstall mongodb, mongodb-shell, mongodb-database-tools)? (y/N)"
     if ($removeMongo -eq 'y' -or $removeMongo -eq 'Y') {
         Invoke-MongoDBUninstall
         Write-Host ""
     }
 } else {
-    Write-MetisWarning "MongoDB was not installed via Chocolatey and cannot be removed automatically."
+    Write-MetisWarning "MongoDB is installed but not via Chocolatey and cannot be removed automatically."
     $null = $script:FAILED_STEPS.Add(@{
         Step      = "MongoDB removal (skipped)"
         NextSteps = "Manually uninstall MongoDB from: Settings > Apps > MongoDB, or via its own uninstaller"
     })
 }
 
-$removeNode = Read-Host "Remove Node.js? (y/N)"
-if ($removeNode -eq 'y' -or $removeNode -eq 'Y') {
-    Invoke-NodeJSUninstall
-    Write-Host ""
+$nodeInstalled = (Get-NodeJSUninstallEntry) -or (Get-Command node -ErrorAction SilentlyContinue)
+if (-not $nodeInstalled) {
+    Write-Success "Node.js is not installed. Skipping Node.js removal."
+} else {
+    $removeNode = Read-Host "Remove Node.js? (y/N)"
+    if ($removeNode -eq 'y' -or $removeNode -eq 'Y') {
+        Invoke-NodeJSUninstall
+        Write-Host ""
+    }
 }
 
 Write-Host "================================================" -ForegroundColor Cyan

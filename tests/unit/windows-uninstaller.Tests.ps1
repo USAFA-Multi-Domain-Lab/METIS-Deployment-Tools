@@ -16,7 +16,8 @@ BeforeAll {
     function global:nssm           { param() }
     function global:sc.exe         { param() }  # defined via alias below
     function global:mongosh        { param() }
-    function global:choco                  { param() }
+    function global:choco                    { param() }
+    function global:Get-MongoDBInstallEntry   { param() [PSCustomObject]@{ DisplayName = "MongoDB 7.0.0" } }
     function global:Get-MongoDBChocoPackages  { param() @("mongodb 7.0.0") }
     function global:Get-NodeJSUninstallEntry  { param() $null }
 
@@ -773,6 +774,38 @@ Describe "FAILED_STEPS accumulation" {
         Remove-METISFiles
 
         $script:FAILED_STEPS[0].NextSteps | Should -Not -BeNullOrEmpty
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Get-MongoDBInstallEntry
+# ---------------------------------------------------------------------------
+Describe "Get-MongoDBInstallEntry" {
+
+    Context "a MongoDB registry entry exists" {
+        It "returns the entry" {
+            Mock Get-ChildItem {
+                @([PSCustomObject]@{ PSChildName = "{MONGO-GUID}" })
+            }
+            Mock Get-ItemProperty {
+                [PSCustomObject]@{ DisplayName = "MongoDB 7.0.0"; PSChildName = "{MONGO-GUID}" }
+            }
+
+            $result = Get-MongoDBInstallEntry
+
+            $result | Should -Not -BeNullOrEmpty
+            $result.DisplayName | Should -Match "MongoDB"
+        }
+    }
+
+    Context "no MongoDB registry entry exists" {
+        It "returns null" {
+            Mock Get-ChildItem { @() }
+
+            $result = Get-MongoDBInstallEntry
+
+            $result | Should -BeNullOrEmpty
+        }
     }
 }
 
