@@ -112,9 +112,10 @@ function Remove-METISService {
     }
 }
 
-# Kill all running node.exe processes.
+# Kill all running node.exe processes, then poll until they have fully
+# exited and released their file handles (up to 10 seconds).
 function Stop-AllNodeProcesses {
-    Write-Success "Stopping all Node.js processes..." 
+    Write-Success "Stopping all Node.js processes..."
 
     Get-Process -Name "node" -ErrorAction SilentlyContinue | ForEach-Object {
         try {
@@ -123,6 +124,14 @@ function Stop-AllNodeProcesses {
         } catch {
             Write-MetisWarning "Could not stop Node.js process (PID $($_.Id)): $_"
         }
+    }
+
+    # Poll until all node processes have exited and released their file handles.
+    # Wait up to 10 seconds before giving up.
+    $waited = 0
+    while ((Get-Process -Name "node" -ErrorAction SilentlyContinue) -and $waited -lt 10) {
+        Start-Sleep -Seconds 1
+        $waited++
     }
 }
 
@@ -331,7 +340,8 @@ function Invoke-MongoDBUninstall {
     Write-Success "Uninstalling MongoDB..."
     try {
         choco uninstall mongodb mongodb-shell mongodb-database-tools -y
-        Write-Success "MongoDB uninstalled."
+        if ($LASTEXITCODE) { throw "choco exited with code $LASTEXITCODE" }
+        Write-Success "MongoDB packages uninstalled."
     } catch {
         Write-MetisWarning "MongoDB uninstall encountered an error: $_"
         $null = $script:FAILED_STEPS.Add(@{
@@ -340,8 +350,25 @@ function Invoke-MongoDBUninstall {
         })
     }
 
-    # Chocolatey only removes binaries; the data directory in ProgramData is not touched
-    # by the uninstaller and must be removed manually so a fresh reinstall starts clean.
+    # Chocolatey may leave the installation directory behind; remove it to ensure
+    # mongod.exe is gone and a fresh reinstall starts clean.
+    # $mongoInstallDir = "C:\Program Files\MongoDB"
+    # if (Test-Path $mongoInstallDir) {
+    #     Write-Success "Removing MongoDB installation directory ($mongoInstallDir)..."
+    #     try {
+    #         Remove-Item -Path $mongoInstallDir -Recurse -Force
+    #         Write-Success "Removed $mongoInstallDir."
+    #     } catch {
+    #         Write-MetisWarning "Failed to remove MongoDB installation directory: $_"
+    #         $null = $script:FAILED_STEPS.Add(@{
+    #             Step      = "MongoDB installation directory"
+    #             NextSteps = "Manually delete: $mongoInstallDir"
+    #         })
+    #     }
+    # }
+
+    # The data directory in ProgramData is not touched by the uninstaller
+    # and must be removed so a fresh reinstall starts clean.
     $mongoDataDir = "$env:PROGRAMDATA\MongoDB"
     if (Test-Path $mongoDataDir) {
         Write-Success "Removing MongoDB data directory ($mongoDataDir)..."
@@ -358,18 +385,55 @@ function Invoke-MongoDBUninstall {
     }
 }
 
-# Uninstalls Node.js via Chocolatey (optional).
+# Searches the Windows registry for the Node.js MSI uninstall entry.
+# Returns the entry object (with PSChildName = product code), or $null if not found.
+function Get-NodeJSUninstallEntry {
+    $registryPaths = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+    )
+    return Get-ChildItem -Path $registryPaths -ErrorAction SilentlyContinue |
+        Get-ItemProperty -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -like "Node.js*" } |
+        Select-Object -First 1
+}
+
+# Uninstalls Node.js (optional).
+# Node.js is installed via the official MSI installer (not Chocolatey).
+# Looks up the product code in the registry and runs msiexec /x to remove it.
+# Falls back to choco if no MSI installation is found.
 function Invoke-NodeJSUninstall {
     Write-Success "Uninstalling Node.js..."
-    try {
-        choco uninstall nodejs nodejs.install nodejs-lts -y --all-versions 2>&1 | Where-Object { $_ -notmatch "is not installed" } | Out-Null
-        Write-Success "Node.js uninstalled."
-    } catch {
-        Write-MetisWarning "Node.js uninstall encountered an error: $_"
-        $null = $script:FAILED_STEPS.Add(@{
-            Step      = "Node.js uninstall"
-            NextSteps = "Run: choco uninstall nodejs nodejs.install nodejs-lts -y --all-versions"
-        })
+
+    $nodeEntry = Get-NodeJSUninstallEntry
+
+    if ($nodeEntry) {
+        # Uninstall via msiexec using the product code from the registry.
+        try {
+            $process = Start-Process msiexec.exe -ArgumentList "/x `"$($nodeEntry.PSChildName)`" /quiet /norestart" -Wait -NoNewWindow -PassThru
+            if ($process.ExitCode) { throw "msiexec exited with code $($process.ExitCode)" }
+            Write-Success "Node.js uninstalled."
+        } catch {
+            Write-MetisWarning "Node.js MSI uninstall failed: $_"
+            $null = $script:FAILED_STEPS.Add(@{
+                Step      = "Node.js uninstall"
+                NextSteps = "Manually uninstall Node.js from: Settings > Apps > Node.js"
+            })
+        }
+    } else {
+        # Fallback: try choco in case it was installed that way.
+        Write-MetisWarning "Node.js MSI not found in registry. Trying choco fallback..."
+        try {
+            choco uninstall nodejs nodejs.install nodejs-lts -y --all-versions 2>&1 | Where-Object { $_ -notmatch "is not installed" } | Out-Null
+            if ($LASTEXITCODE) { throw "choco exited with code $LASTEXITCODE" }
+            Write-Success "Node.js uninstalled via choco."
+        } catch {
+            Write-MetisWarning "Node.js uninstall failed: $_"
+            $null = $script:FAILED_STEPS.Add(@{
+                Step      = "Node.js uninstall"
+                NextSteps = "Manually uninstall Node.js from: Settings > Apps > Node.js"
+            })
+        }
     }
 }
 
@@ -428,7 +492,7 @@ if ($removeMongo -eq 'y' -or $removeMongo -eq 'Y') {
     Write-Host ""
 }
 
-$removeNode = Read-Host "Remove Node.js (choco uninstall nodejs)? (y/N)"
+$removeNode = Read-Host "Remove Node.js? (y/N)"
 if ($removeNode -eq 'y' -or $removeNode -eq 'Y') {
     Invoke-NodeJSUninstall
     Write-Host ""
