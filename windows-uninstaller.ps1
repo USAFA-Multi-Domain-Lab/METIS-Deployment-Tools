@@ -354,8 +354,36 @@ function Get-MongoDBChocoPackages {
     return choco list 2>&1 | Where-Object { $_ -match "^mongodb" }
 }
 
+# Stops the MongoDB Windows service (if running) and kills any residual
+# mongod processes, then polls until they have fully exited and released
+# their file handles (up to 10 seconds).
+function Stop-MongodProcesses {
+    Write-Success "Stopping MongoDB service and processes..."
+
+    Stop-Service -Name "MongoDB" -Force -ErrorAction SilentlyContinue
+
+    Get-Process -Name "mongod" -ErrorAction SilentlyContinue | ForEach-Object {
+        try {
+            Stop-Process -Id $_.Id -Force
+            Write-Success "Stopped mongod process (PID $($_.Id))."
+        } catch {
+            Write-MetisWarning "Could not stop mongod process (PID $($_.Id)): $_"
+        }
+    }
+
+    # Poll until all mongod processes have exited and released their file handles.
+    # Wait up to 10 seconds before giving up.
+    $waited = 0
+    while ((Get-Process -Name "mongod" -ErrorAction SilentlyContinue) -and $waited -lt 10) {
+        Start-Sleep -Seconds 1
+        $waited++
+    }
+}
+
 # Uninstalls MongoDB via Chocolatey.
 function Invoke-MongoDBUninstall {
+    Stop-MongodProcesses
+
     Write-Success "Uninstalling MongoDB..."
     try {
         choco uninstall mongodb mongodb-shell mongodb-database-tools -y
@@ -388,20 +416,20 @@ function Invoke-MongoDBUninstall {
 
     # The data directory in ProgramData is not touched by the uninstaller
     # and must be removed so a fresh reinstall starts clean.
-    $mongoDataDir = "$env:PROGRAMDATA\MongoDB"
-    if (Test-Path $mongoDataDir) {
-        Write-Success "Removing MongoDB data directory ($mongoDataDir)..."
-        try {
-            Remove-Item -Path $mongoDataDir -Recurse -Force
-            Write-Success "Removed $mongoDataDir."
-        } catch {
-            Write-MetisWarning "Failed to remove MongoDB data directory: $_"
-            $null = $script:FAILED_STEPS.Add(@{
-                Step      = "MongoDB data directory"
-                NextSteps = "Manually delete: $mongoDataDir (contains auth data that will block a fresh reinstall)"
-            })
-        }
-    }
+    # $mongoDataDir = "$env:PROGRAMDATA\MongoDB"
+    # if (Test-Path $mongoDataDir) {
+    #     Write-Success "Removing MongoDB data directory ($mongoDataDir)..."
+    #     try {
+    #         Remove-Item -Path $mongoDataDir -Recurse -Force
+    #         Write-Success "Removed $mongoDataDir."
+    #     } catch {
+    #         Write-MetisWarning "Failed to remove MongoDB data directory: $_"
+    #         $null = $script:FAILED_STEPS.Add(@{
+    #             Step      = "MongoDB data directory"
+    #             NextSteps = "Manually delete: $mongoDataDir (contains auth data that will block a fresh reinstall)"
+    #         })
+    #     }
+    # }
 }
 
 # Searches the Windows registry for the Node.js MSI uninstall entry.
@@ -533,6 +561,7 @@ if (-not $nodeInstalled) {
     }
 }
 
+Write-Host ""
 Write-Host "================================================" -ForegroundColor Cyan
 Write-Host ""
 

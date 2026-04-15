@@ -515,6 +515,69 @@ Describe "Stop-AllNodeProcesses" {
 }
 
 # ---------------------------------------------------------------------------
+# Stop-MongodProcesses
+# ---------------------------------------------------------------------------
+Describe "Stop-MongodProcesses" {
+
+    BeforeEach {
+        Reset-ScriptState
+        Mock Write-Success {}
+        Mock Write-MetisWarning {}
+        Mock Stop-Process {}
+        Mock Stop-Service {}
+        Mock Start-Sleep {}
+    }
+
+    Context "no mongod processes are running" {
+        It "does not call Stop-Process" {
+            Mock Get-Process { @() }
+
+            Stop-MongodProcesses
+
+            Should -Not -Invoke Stop-Process
+        }
+
+        It "still calls Stop-Service for the MongoDB service" {
+            Mock Get-Process { @() }
+
+            Stop-MongodProcesses
+
+            Should -Invoke Stop-Service -Times 1 -ParameterFilter { $Name -eq "MongoDB" }
+        }
+    }
+
+    Context "mongod processes are running" {
+        It "stops all of them" {
+            $script:getProcessCallCount = 0
+            $fakeProcess = [PSCustomObject]@{ Id = 5678 }
+            Mock Get-Process {
+                $script:getProcessCallCount++
+                if ($script:getProcessCallCount -eq 1) { @($fakeProcess) } else { @() }
+            }
+
+            Stop-MongodProcesses
+
+            Should -Invoke Stop-Process -Times 1 -ParameterFilter { $Id -eq 5678 }
+        }
+    }
+
+    Context "mongod processes linger after kill, then exit" {
+        It "polls until all processes have exited" {
+            $script:getProcessCallCount = 0
+            $fakeProcess = [PSCustomObject]@{ Id = 5678 }
+            Mock Get-Process {
+                $script:getProcessCallCount++
+                if ($script:getProcessCallCount -le 3) { @($fakeProcess) } else { @() }
+            }
+
+            Stop-MongodProcesses
+
+            Should -Invoke Start-Sleep -Times 2
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Remove-METISFiles
 # ---------------------------------------------------------------------------
 Describe "Remove-METISFiles" {
@@ -818,12 +881,18 @@ Describe "Invoke-MongoDBUninstall" {
         Reset-ScriptState
         Mock Write-Success {}
         Mock Write-MetisWarning {}
+        Mock Stop-MongodProcesses {}
         Mock choco {}
         Mock Remove-Item {}
         Mock Test-Path { $false }
     }
 
     Context "choco uninstall succeeds" {
+        It "calls Stop-MongodProcesses before uninstalling" {
+            Invoke-MongoDBUninstall
+            Should -Invoke Stop-MongodProcesses -Times 1
+        }
+
         It "calls choco uninstall" {
             Invoke-MongoDBUninstall
             Should -Invoke choco -Times 1
