@@ -507,7 +507,7 @@ Write-Host ""
 
 $mongoInstalled = (Get-MongoDBInstallEntry) -or (Get-Command mongod -ErrorAction SilentlyContinue)
 if (-not $mongoInstalled) {
-    Write-Success "MongoDB is not installed. Skipping MongoDB removal."
+    Write-MetisWarning "MongoDB is not installed. Skipping MongoDB removal."
 } elseif (Get-MongoDBChocoPackages) {
     $removeMongo = Read-Host "Remove MongoDB (choco uninstall mongodb, mongodb-shell, mongodb-database-tools)? (y/N)"
     if ($removeMongo -eq 'y' -or $removeMongo -eq 'Y') {
@@ -524,7 +524,7 @@ if (-not $mongoInstalled) {
 
 $nodeInstalled = (Get-NodeJSUninstallEntry) -or (Get-Command node -ErrorAction SilentlyContinue)
 if (-not $nodeInstalled) {
-    Write-Success "Node.js is not installed. Skipping Node.js removal."
+    Write-MetisWarning "Node.js is not installed. Skipping Node.js removal."
 } else {
     $removeNode = Read-Host "Remove Node.js? (y/N)"
     if ($removeNode -eq 'y' -or $removeNode -eq 'Y') {
