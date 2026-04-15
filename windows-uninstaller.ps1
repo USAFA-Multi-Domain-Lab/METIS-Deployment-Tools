@@ -386,7 +386,15 @@ function Invoke-MongoDBUninstall {
 
     Write-Success "Uninstalling MongoDB..."
     try {
-        choco uninstall mongodb mongodb-shell mongodb-database-tools -y
+        # Only uninstall packages that are actually registered with Chocolatey,
+        # and only those on the known whitelist — choco uninstall on a package that
+        # was never installed via choco causes a non-zero exit and a false failure report,
+        # and we don't want to accidentally uninstall unrelated packages whose names
+        # happen to start with "mongodb".
+        $knownMongoPackages = @("mongodb", "mongodb.install", "mongodb-shell", "mongodb-database-tools")
+        $installedNames      = @(Get-MongoDBChocoPackages | ForEach-Object { ($_ -split '\s+')[0] })
+        $chocoPackages       = @($installedNames | Where-Object { $knownMongoPackages -contains $_ })
+        choco uninstall @chocoPackages -y
         if ($LASTEXITCODE) { throw "choco exited with code $LASTEXITCODE" }
         Write-Success "MongoDB packages uninstalled."
     } catch {

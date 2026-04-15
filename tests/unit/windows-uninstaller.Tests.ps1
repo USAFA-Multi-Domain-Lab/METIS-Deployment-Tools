@@ -904,6 +904,38 @@ Describe "Invoke-MongoDBUninstall" {
         }
     }
 
+    Context "only a subset of MongoDB packages are installed via choco (partial install)" {
+        BeforeEach {
+            # Simulate the scenario where only mongodb.install is registered — not the shell or tools.
+            Mock Get-MongoDBChocoPackages { @("mongodb.install 8.0.4") }
+        }
+
+        It "does not add any FAILED_STEPS entries" {
+            Invoke-MongoDBUninstall
+            $script:FAILED_STEPS.Count | Should -Be 0
+        }
+    }
+
+    Context "choco list returns a non-whitelisted mongodb-prefixed package" {
+        BeforeEach {
+            # mongodb-community-edition is not on the whitelist and must not be uninstalled.
+            Mock Get-MongoDBChocoPackages { @("mongodb.install 8.0.4", "mongodb-community-edition 8.0.4") }
+        }
+
+        It "does not add any FAILED_STEPS entries" {
+            Invoke-MongoDBUninstall
+            $script:FAILED_STEPS.Count | Should -Be 0
+        }
+
+        It "only passes whitelisted package names to choco" {
+            $script:capturedChocoArgs = $null
+            Mock choco { $script:capturedChocoArgs = $args }
+            Invoke-MongoDBUninstall
+            $script:capturedChocoArgs | Should -Not -Contain "mongodb-community-edition"
+            $script:capturedChocoArgs | Should -Contain "mongodb.install"
+        }
+    }
+
     Context "choco uninstall throws" {
         BeforeEach {
             Mock choco { throw "Package not found" }
