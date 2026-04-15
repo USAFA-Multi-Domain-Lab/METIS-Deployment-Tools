@@ -17,7 +17,8 @@ BeforeAll {
     function global:sc.exe         { param() }  # defined via alias below
     function global:mongosh        { param() }
     function global:choco                  { param() }
-    function global:Get-NodeJSUninstallEntry { param() $null }
+    function global:Get-MongoDBChocoPackages  { param() @("mongodb 7.0.0") }
+    function global:Get-NodeJSUninstallEntry  { param() $null }
 
     # sc.exe has a dot — register it on the Function: drive
     Set-Item -Path "Function:global:Invoke-ScExe" -Value { }
@@ -225,9 +226,9 @@ Describe "Remove-METISCredentials" {
 }
 
 # ---------------------------------------------------------------------------
-# Remove-METISMongoUser
+# Remove-MongoMetisData
 # ---------------------------------------------------------------------------
-Describe "Remove-METISMongoUser" {
+Describe "Remove-MongoMetisData" {
 
     BeforeEach {
         Reset-ScriptState
@@ -242,7 +243,7 @@ Describe "Remove-METISMongoUser" {
         It "skips and warns without calling Get-Command" {
             $script:CREDENTIALS_PARSED = $false
 
-            Remove-METISMongoUser
+            Remove-MongoMetisData
 
             Should -Invoke Write-MetisWarning -ParameterFilter { "$args" -match "Skipping" }
             Should -Not -Invoke Get-Command
@@ -254,7 +255,7 @@ Describe "Remove-METISMongoUser" {
             $script:CREDENTIALS_PARSED = $true
             # Get-Command already returns $null from BeforeEach
 
-            Remove-METISMongoUser
+            Remove-MongoMetisData
 
             Should -Invoke Write-MetisWarning -ParameterFilter { "$args" -match "mongosh not found" }
             $script:MONGO_DROP_SUCCEEDED | Should -Be $false
@@ -273,12 +274,12 @@ Describe "Remove-METISMongoUser" {
         }
 
         It "sets MONGO_DROP_SUCCEEDED to true" {
-            Remove-METISMongoUser
+            Remove-MongoMetisData
             $script:MONGO_DROP_SUCCEEDED | Should -Be $true
         }
 
         It "does not add any FAILED_STEPS entries" {
-            Remove-METISMongoUser
+            Remove-MongoMetisData
             $script:FAILED_STEPS.Count | Should -Be 0
         }
     }
@@ -295,12 +296,12 @@ Describe "Remove-METISMongoUser" {
         }
 
         It "does not set MONGO_DROP_SUCCEEDED" {
-            Remove-METISMongoUser
+            Remove-MongoMetisData
             $script:MONGO_DROP_SUCCEEDED | Should -Be $false
         }
 
         It "emits a warning mentioning MongoServerError" {
-            Remove-METISMongoUser
+            Remove-MongoMetisData
             Should -Invoke Write-MetisWarning -ParameterFilter { "$args" -match "MongoDB reported an error" }
         }
     }
@@ -317,13 +318,13 @@ Describe "Remove-METISMongoUser" {
         }
 
         It "adds a FAILED_STEPS entry for MongoDB user removal" {
-            Remove-METISMongoUser
+            Remove-MongoMetisData
             $script:FAILED_STEPS.Count | Should -Be 1
             $script:FAILED_STEPS[0].Step | Should -Match "MongoDB user"
         }
 
         It "does not set MONGO_DROP_SUCCEEDED" {
-            Remove-METISMongoUser
+            Remove-MongoMetisData
             $script:MONGO_DROP_SUCCEEDED | Should -Be $false
         }
     }
@@ -786,7 +787,6 @@ Describe "Invoke-MongoDBUninstall" {
         Mock Write-MetisWarning {}
         Mock choco {}
         Mock Remove-Item {}
-        # Default: data dir does not exist
         Mock Test-Path { $false }
     }
 

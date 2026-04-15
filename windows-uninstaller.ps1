@@ -136,7 +136,7 @@ function Stop-AllNodeProcesses {
 }
 
 # Drops the METIS MongoDB user and database using saved admin credentials.
-function Remove-METISMongoUser {
+function Remove-MongoMetisData {
     if (-not $script:CREDENTIALS_PARSED) {
         Write-MetisWarning "Skipping MongoDB user removal (credentials unavailable or unparseable)."
         return
@@ -335,7 +335,13 @@ function Remove-METISInstallDir {
     }
 }
 
-# Uninstalls MongoDB via Chocolatey (optional).
+# Returns all MongoDB-related packages currently registered with Chocolatey.
+# Returns an empty array if none are found.
+function Get-MongoDBChocoPackages {
+    return choco list 2>&1 | Where-Object { $_ -match "^mongodb" }
+}
+
+# Uninstalls MongoDB via Chocolatey.
 function Invoke-MongoDBUninstall {
     Write-Success "Uninstalling MongoDB..."
     try {
@@ -478,7 +484,7 @@ if ($service) {
     Write-MetisWarning "METIS service not found. Skipping service stop and removal steps..."
 }
 
-Remove-METISMongoUser
+Remove-MongoMetisData
 Remove-METISFiles
 Remove-METISCredentials
 Remove-METISCLIWrapper
@@ -486,10 +492,19 @@ Remove-METISInstallDir
 
 Write-Host ""
 
-$removeMongo = Read-Host "Remove MongoDB (choco uninstall mongodb, mongodb-shell, mongodb-database-tools)? (y/N)"
-if ($removeMongo -eq 'y' -or $removeMongo -eq 'Y') {
-    Invoke-MongoDBUninstall
-    Write-Host ""
+$mongoPackages = Get-MongoDBChocoPackages
+if ($mongoPackages) {
+    $removeMongo = Read-Host "Remove MongoDB (choco uninstall mongodb, mongodb-shell, mongodb-database-tools)? (y/N)"
+    if ($removeMongo -eq 'y' -or $removeMongo -eq 'Y') {
+        Invoke-MongoDBUninstall
+        Write-Host ""
+    }
+} else {
+    Write-MetisWarning "MongoDB was not installed via Chocolatey and cannot be removed automatically."
+    $null = $script:FAILED_STEPS.Add(@{
+        Step      = "MongoDB removal (skipped)"
+        NextSteps = "Manually uninstall MongoDB from: Settings > Apps > MongoDB, or via its own uninstaller"
+    })
 }
 
 $removeNode = Read-Host "Remove Node.js? (y/N)"
