@@ -1,0 +1,581 @@
+# METIS Uninstall Script for Windows
+# This script removes METIS and its associated components.
+
+# Requires Administrator privileges
+#Requires -RunAsAdministrator
+
+$ErrorActionPreference = "Continue"
+
+# Colors for output
+function Write-Success      { Write-Host "[METIS] $($args -replace '^\[METIS\](\[WARN\]|\[ERROR\])?\s*','')" -ForegroundColor Green }
+function Write-MetisError   { Write-Host "[METIS][ERROR] $($args -replace '^\[METIS\](\[WARN\]|\[ERROR\])?\s*','')" -ForegroundColor Red }
+function Write-MetisWarning { Write-Host "[METIS][WARN] $($args -replace '^\[METIS\](\[WARN\]|\[ERROR\])?\s*','')" -ForegroundColor Yellow }
+
+# Paths
+$METIS_INSTALL_DIR = "C:\PROGRA~1\METIS"
+$CREDENTIALS_FILE  = "$env:PROGRAMDATA\.metis-credentials.txt"
+$SERVICE_DATA_DIR  = "$env:PROGRAMDATA\METIS"
+$CLI_WRAPPER       = "C:\Windows\System32\metis.bat"
+
+# Global credential variables
+$script:ADMIN_USER        = ""
+$script:ADMIN_PASS        = ""
+$script:METIS_USER        = ""
+$script:METIS_PASS        = ""
+$script:CREDENTIALS_PARSED    = $false
+$script:MONGO_DROP_SUCCEEDED  = $false
+$script:FAILED_STEPS          = [System.Collections.ArrayList]@()
+
+# Reads MongoDB credentials from the credentials file before it is deleted.
+# Sets $script:CREDENTIALS_PARSED to $true only if all four values are found.
+function Read-METISCredentials {
+    if (-not (Test-Path $CREDENTIALS_FILE)) {
+        Write-MetisWarning "Credentials file not found at $CREDENTIALS_FILE. MongoDB user removal will be skipped."
+        return
+    }
+
+    Write-Success "Reading credentials from $CREDENTIALS_FILE..."
+    $credentials = Get-Content $CREDENTIALS_FILE
+
+    $script:ADMIN_USER = "$($credentials | Select-String 'MongoDB Admin Username:' | ForEach-Object { $_ -replace 'MongoDB Admin Username: ', '' })".Trim()
+    $script:ADMIN_PASS = "$($credentials | Select-String 'MongoDB Admin Password:' | ForEach-Object { $_ -replace 'MongoDB Admin Password: ', '' })".Trim()
+    $script:METIS_USER = "$($credentials | Select-String 'MongoDB Web Username:'   | ForEach-Object { $_ -replace 'MongoDB Web Username: ',   '' })".Trim()
+    $script:METIS_PASS = "$($credentials | Select-String 'MongoDB Web Password:'   | ForEach-Object { $_ -replace 'MongoDB Web Password: ',   '' })".Trim()
+
+    if (-not $script:ADMIN_USER -or -not $script:ADMIN_PASS -or -not $script:METIS_USER -or -not $script:METIS_PASS) {
+        Write-MetisWarning "Credentials file exists but could not be fully parsed. Expected format:"
+        Write-Host "   MongoDB Admin Username: <value>" -ForegroundColor Yellow
+        Write-Host "   MongoDB Admin Password: <value>" -ForegroundColor Yellow
+        Write-Host "   MongoDB Web Username: <value>"   -ForegroundColor Yellow
+        Write-Host "   MongoDB Web Password: <value>"   -ForegroundColor Yellow
+        Write-Host ""
+        Write-MetisWarning "The MongoDB user and database will not be removed automatically."
+        Write-Host "To remove them manually, connect to mongosh and run:" -ForegroundColor White
+        Write-Host "   use metis"                    -ForegroundColor Cyan
+        Write-Host "   db.dropUser(`"<metis_user>`")" -ForegroundColor Cyan
+        Write-Host "   db.dropDatabase()"            -ForegroundColor Cyan
+        return
+    }
+
+    $script:CREDENTIALS_PARSED = $true
+    Write-Success "Credentials loaded."
+}
+
+# Retrieves the METIS Windows service object, or $null if not found.
+function Get-METISService {
+    return Get-Service -Name "METIS" -ErrorAction SilentlyContinue
+}
+
+# Stops the METIS service provided, if it is running.
+function Stop-METISService {
+    param (
+        $service
+    )
+    Write-Success "Stopping METIS service..."
+
+    # Confirm service is running before stopping.
+    if ($service.Status -ne 'Running') {
+        Write-MetisWarning "METIS service is not running. Current status: $($service.Status). Skipping stop step..."
+        return
+    }
+
+    # Attempt stop.
+    try {
+        Stop-Service -Name "METIS" -Force -ErrorAction Stop
+        Write-Success "METIS service stopped."
+    } catch {
+        Write-MetisWarning "Could not stop METIS service: $_"
+    }
+}
+
+
+# Finds and removes the METIS Window service using NSSM 
+# if available, or sc.exe as a fallback.
+function Remove-METISService {
+    Write-Success "Removing METIS service..."
+
+    try {
+        if (Get-Command nssm -ErrorAction SilentlyContinue) {
+            & nssm remove METIS confirm
+            Write-Success "METIS service removed."
+        } else {
+            # Fallback if NSSM is no longer on PATH
+            & sc.exe delete METIS | Out-Null
+            Write-Success "METIS service removed via sc.exe."
+        }
+    } catch {
+        Write-MetisError "Service removal failed: $_"
+        $null = $script:FAILED_STEPS.Add(@{
+            Step      = "METIS service removal"
+            NextSteps = "Kill any running METIS processes, then run: sc.exe delete METIS"
+        })
+    }
+}
+
+# Kill all running node.exe processes, then poll until they have fully
+# exited and released their file handles (up to 10 seconds).
+function Stop-AllNodeProcesses {
+    Write-Success "Stopping all Node.js processes..."
+
+    Get-Process -Name "node" -ErrorAction SilentlyContinue | ForEach-Object {
+        try {
+            Stop-Process -Id $_.Id -Force
+            Write-Success "Stopped Node.js process (PID $($_.Id))."
+        } catch {
+            Write-MetisWarning "Could not stop Node.js process (PID $($_.Id)): $_"
+        }
+    }
+
+    # Poll until all node processes have exited and released their file handles.
+    # Wait up to 10 seconds before giving up.
+    $waited = 0
+    while ((Get-Process -Name "node" -ErrorAction SilentlyContinue) -and $waited -lt 10) {
+        Start-Sleep -Seconds 1
+        $waited++
+    }
+}
+
+# Drops the METIS MongoDB user and database using saved admin credentials.
+function Remove-MongoMetisData {
+    if (-not $script:CREDENTIALS_PARSED) {
+        Write-MetisWarning "Skipping MongoDB user removal (credentials unavailable or unparseable)."
+        return
+    }
+
+    if (-not (Get-Command mongosh -ErrorAction SilentlyContinue)) {
+        Write-MetisWarning "mongosh not found. Skipping MongoDB user removal."
+        return
+    }
+
+    Write-Success "Removing METIS MongoDB user and database..."
+
+    $dropScript = @"
+use metis
+try { db.dropUser("$($script:METIS_USER)") } catch(e) {}
+db.dropDatabase()
+use admin
+try { db.dropUser("$($script:ADMIN_USER)") } catch(e) {}
+"@
+
+    try {
+        $output = $dropScript | & mongosh -u "$($script:ADMIN_USER)" -p "$($script:ADMIN_PASS)" --authenticationDatabase admin 2>&1
+        if ($output -match "MongoServerError") {
+            Write-MetisWarning "MongoDB reported an error during removal. The user or database may have already been removed."
+            Write-Host "       MongoDB output:" -ForegroundColor Yellow
+            $output | Where-Object { $_ -match "MongoServerError" } | ForEach-Object { Write-Host "       $_" -ForegroundColor Yellow }
+        } else {
+            Write-Success "METIS MongoDB user and database removed."
+            $script:MONGO_DROP_SUCCEEDED = $true
+        }
+    } catch {
+        Write-MetisWarning "Failed to remove MongoDB user/database: $_"
+        $null = $script:FAILED_STEPS.Add(@{
+            Step      = "MongoDB user/database removal"
+            NextSteps = "Connect to mongosh and run: use metis / db.dropUser(`"$($script:METIS_USER)`") / db.dropDatabase()"
+        })
+    }
+}
+
+# Deletes the METIS service data directory (logs, startup batch).
+# If a file lock is detected, prompts the user to kill all Node.js
+# processes and retries.
+function Remove-METISFiles {
+    param (
+        $retrying = $false
+    )
+
+    Write-Success "Removing METIS service data directory..."
+
+    if (Test-Path $SERVICE_DATA_DIR) {
+        try {
+            # Attempt deletion.
+            Remove-Item -Path $SERVICE_DATA_DIR -Recurse -Force -ErrorAction Stop
+            Write-Success "Removed $SERVICE_DATA_DIR."
+        } catch {
+            # If this is the second failure, give up and report the error.
+            if ($retrying) {
+                Write-MetisError "Failed to remove ${SERVICE_DATA_DIR} after retry: $_"
+            }
+            # If the first failure, check if it's a file lock issue.
+            # Then prompt to kill Node.js processes to free up files.
+            elseif ($_ -match "being used by another process") {
+                Write-MetisWarning "A file in $SERVICE_DATA_DIR is locked by another process."
+                $killNodes = Read-Host "Kill all Node.js processes and retry? (Y/n)"
+
+                # If user agrees, kill Node.js processes and retry deletion once.
+                if ($killNodes -eq '' -or $killNodes -eq 'y' -or $killNodes -eq 'Y') {
+                    Stop-AllNodeProcesses
+                    # Call recursively to attempt process again.
+                    # The $retrying flag will prevent an infinite
+                    # loop.
+                    Remove-METISFiles $true
+                    return
+                } else {
+                    Write-MetisWarning "Skipping kill step. You will need to manually close any applications using files in $SERVICE_DATA_DIR before deleting it."
+                }
+            } else {
+                Write-MetisWarning "Failed to remove ${SERVICE_DATA_DIR}: $_"
+            }
+        }
+
+        # If the directory still exists, add a failed step
+        # for manual deletion.
+        if (Test-Path $SERVICE_DATA_DIR) {
+            $null = $script:FAILED_STEPS.Add(@{
+                Step      = "METIS service data directory"
+                NextSteps = "Manually delete: $SERVICE_DATA_DIR"
+            })
+        }
+    } else {
+        Write-MetisWarning "$SERVICE_DATA_DIR not found. Skipping..."
+    }
+}
+
+# Deletes the saved MongoDB credentials file.
+# Skipped if the MongoDB drop failed so credentials remain available for a retry.
+function Remove-METISCredentials {
+    if ($script:CREDENTIALS_PARSED -and -not $script:MONGO_DROP_SUCCEEDED) {
+        Write-MetisWarning "Keeping credentials file at $CREDENTIALS_FILE because MongoDB user removal failed."
+        Write-MetisWarning "Re-run this script to retry, or remove the user manually and then delete the file."
+        $null = $script:FAILED_STEPS.Add(@{
+            Step      = "METIS credentials file (retained)"
+            NextSteps = "MongoDB user removal failed, therefore credentials were kept for retry. Once resolved, manually delete: $CREDENTIALS_FILE"
+        })
+        return
+    }
+    Write-Success "Removing METIS credentials file..."
+    if (Test-Path $CREDENTIALS_FILE) {
+        try {
+            Remove-Item -Path $CREDENTIALS_FILE -Force
+            Write-Success "Removed $CREDENTIALS_FILE."
+        } catch {
+            Write-MetisError "Failed to remove ${CREDENTIALS_FILE}: $_"
+            Write-MetisError "This file contains sensitive credentials and must be deleted manually."
+            $null = $script:FAILED_STEPS.Add(@{
+                Step      = "METIS credentials file"
+                NextSteps = "This file contains sensitive credentials. Manually delete: $CREDENTIALS_FILE"
+            })
+        }
+    } else {
+        Write-MetisWarning "$CREDENTIALS_FILE not found. Skipping..."
+    }
+}
+
+# Deletes the metis.bat CLI wrapper from System32.
+function Remove-METISCLIWrapper {
+    Write-Success "Removing METIS CLI wrapper..."
+    if (Test-Path $CLI_WRAPPER) {
+        try {
+            Remove-Item -Path $CLI_WRAPPER -Force
+            Write-Success "Removed $CLI_WRAPPER."
+        } catch {
+            Write-MetisWarning "Failed to remove ${CLI_WRAPPER}: $_"
+            $null = $script:FAILED_STEPS.Add(@{
+                Step      = "METIS CLI wrapper"
+                NextSteps = "Manually delete: $CLI_WRAPPER"
+            })
+        }
+    } else {
+        Write-MetisWarning "$CLI_WRAPPER not found. Skipping..."
+    }
+}
+
+# Deletes the METIS installation directory (last -- CLI lives here).
+# If a file lock is detected, prompts the user to kill all Node.js 
+# processes and retries.
+function Remove-METISInstallDir {
+    param (
+        $retrying = $false
+    )
+
+    Write-Success "Removing METIS installation directory..."
+
+    if (Test-Path $METIS_INSTALL_DIR) {
+        try {
+            # Attempt deletion.
+            Remove-Item -Path $METIS_INSTALL_DIR -Recurse -Force -ErrorAction Stop
+            Write-Success "Removed $METIS_INSTALL_DIR."
+        } catch {
+            # If this is the second failure, give up and report the error.
+            if ($retrying) {
+                Write-MetisError "Failed to remove ${METIS_INSTALL_DIR} after retry: $_"
+            }
+            # If the first failure, check if it's a file lock issue.
+            # Then prompt to kill Node.js processes to free up files.
+            elseif ($_ -match "being used by another process") {
+                Write-MetisWarning "A file in $METIS_INSTALL_DIR is locked by another process."
+                $killNodes = Read-Host "Kill all Node.js processes and retry? (Y/n)"
+
+                # If user agrees, kill Node.js processes and retry deletion once.
+                if ($killNodes -eq '' -or $killNodes -eq 'y' -or $killNodes -eq 'Y') {
+                    Stop-AllNodeProcesses
+                    # Call recursively to attempt process again.
+                    # The $retrying flag will prevent an infinite 
+                    # loop.
+                    Remove-METISInstallDir $true
+                    return
+                } else {
+                    Write-MetisWarning "Skipping kill step. You will need to manually close any applications using files in $METIS_INSTALL_DIR before deleting it."
+                }
+            } else {
+                Write-MetisError "Failed to remove ${METIS_INSTALL_DIR}: $_"
+            }
+        }
+
+        # If the directory still exists, add a failed step
+        # for manual deletion.
+        if (Test-Path $METIS_INSTALL_DIR) {
+            $null = $script:FAILED_STEPS.Add(@{
+                Step      = "METIS installation directory"
+                NextSteps = "Manually delete: $METIS_INSTALL_DIR (close any applications that may be using files in this directory, such as code editors or terminals)"
+            })
+        }
+    } else {
+        Write-MetisWarning "$METIS_INSTALL_DIR not found. Skipping..."
+    }
+}
+
+# Searches the Windows registry for a MongoDB installation entry.
+# Returns the entry object, or $null if MongoDB is not installed.
+function Get-MongoDBInstallEntry {
+    $registryPaths = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+    )
+    return Get-ChildItem -Path $registryPaths -ErrorAction SilentlyContinue |
+        Get-ItemProperty -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -like "MongoDB*" } |
+        Select-Object -First 1
+}
+
+# Returns all MongoDB-related packages currently registered with Chocolatey.
+# Returns an empty array if none are found.
+function Get-MongoDBChocoPackages {
+    return choco list 2>&1 | Where-Object { $_ -match "^mongodb" }
+}
+
+# Stops the MongoDB Windows service (if running) and kills any residual
+# mongod processes, then polls until they have fully exited and released
+# their file handles (up to 10 seconds).
+function Stop-MongodProcesses {
+    Write-Success "Stopping MongoDB service and processes..."
+
+    Stop-Service -Name "MongoDB" -Force -ErrorAction SilentlyContinue
+
+    Get-Process -Name "mongod" -ErrorAction SilentlyContinue | ForEach-Object {
+        try {
+            Stop-Process -Id $_.Id -Force
+            Write-Success "Stopped mongod process (PID $($_.Id))."
+        } catch {
+            Write-MetisWarning "Could not stop mongod process (PID $($_.Id)): $_"
+        }
+    }
+
+    # Poll until all mongod processes have exited and released their file handles.
+    # Wait up to 10 seconds before giving up.
+    $waited = 0
+    while ((Get-Process -Name "mongod" -ErrorAction SilentlyContinue) -and $waited -lt 10) {
+        Start-Sleep -Seconds 1
+        $waited++
+    }
+}
+
+# Uninstalls MongoDB via Chocolatey.
+function Invoke-MongoDBUninstall {
+    Stop-MongodProcesses
+
+    Write-Success "Uninstalling MongoDB..."
+    try {
+        # Only uninstall packages that are actually registered with Chocolatey,
+        # and only those on the known whitelist — choco uninstall on a package that
+        # was never installed via choco causes a non-zero exit and a false failure report,
+        # and we don't want to accidentally uninstall unrelated packages whose names
+        # happen to start with "mongodb".
+        $knownMongoPackages = @("mongodb", "mongodb.install", "mongodb-shell", "mongodb-database-tools")
+        $installedNames      = @(Get-MongoDBChocoPackages | ForEach-Object { ($_ -split '\s+')[0] })
+        $chocoPackages       = @($installedNames | Where-Object { $knownMongoPackages -contains $_ })
+        choco uninstall @chocoPackages -y
+        if ($LASTEXITCODE) { throw "choco exited with code $LASTEXITCODE" }
+        Write-Success "MongoDB packages uninstalled."
+    } catch {
+        Write-MetisWarning "MongoDB uninstall encountered an error: $_"
+        $null = $script:FAILED_STEPS.Add(@{
+            Step      = "MongoDB uninstall"
+            NextSteps = "Run: choco uninstall mongodb mongodb-shell mongodb-database-tools -y"
+        })
+    }
+
+    # The data directory in ProgramData is not touched by the uninstaller
+    # and must be removed so a fresh reinstall starts clean.
+    $mongoDataDir = "$env:PROGRAMDATA\MongoDB"
+    if (Test-Path $mongoDataDir) {
+        Write-Success "Removing MongoDB data directory ($mongoDataDir)..."
+        try {
+            Remove-Item -Path $mongoDataDir -Recurse -Force
+            Write-Success "Removed $mongoDataDir."
+        } catch {
+            Write-MetisWarning "Failed to remove MongoDB data directory: $_"
+            $null = $script:FAILED_STEPS.Add(@{
+                Step      = "MongoDB data directory"
+                NextSteps = "Manually delete: $mongoDataDir (contains auth data that will block a fresh reinstall)"
+            })
+        }
+    }
+}
+
+# Searches the Windows registry for the Node.js MSI uninstall entry.
+# Returns the entry object (with PSChildName = product code), or $null if not found.
+function Get-NodeJSUninstallEntry {
+    $registryPaths = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+    )
+    return Get-ChildItem -Path $registryPaths -ErrorAction SilentlyContinue |
+        Get-ItemProperty -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -like "Node.js*" } |
+        Select-Object -First 1
+}
+
+# Uninstalls Node.js (optional).
+# Node.js is installed via the official MSI installer (not Chocolatey).
+# Looks up the product code in the registry and runs msiexec /x to remove it.
+# Falls back to choco if no MSI installation is found.
+function Invoke-NodeJSUninstall {
+    Write-Success "Uninstalling Node.js..."
+
+    $nodeEntry = Get-NodeJSUninstallEntry
+
+    if ($nodeEntry) {
+        # Uninstall via msiexec using the product code from the registry.
+        try {
+            $process = Start-Process msiexec.exe -ArgumentList "/x `"$($nodeEntry.PSChildName)`" /quiet /norestart" -Wait -NoNewWindow -PassThru
+            if ($process.ExitCode) { throw "msiexec exited with code $($process.ExitCode)" }
+            Write-Success "Node.js uninstalled."
+        } catch {
+            Write-MetisWarning "Node.js MSI uninstall failed: $_"
+            $null = $script:FAILED_STEPS.Add(@{
+                Step      = "Node.js uninstall"
+                NextSteps = "Manually uninstall Node.js from: Settings > Apps > Node.js"
+            })
+        }
+    } else {
+        # Fallback: try choco in case it was installed that way.
+        Write-MetisWarning "Node.js MSI not found in registry. Trying choco fallback..."
+        try {
+            choco uninstall nodejs nodejs.install nodejs-lts -y --all-versions 2>&1 | Where-Object { $_ -notmatch "is not installed" } | Out-Null
+            if ($LASTEXITCODE) { throw "choco exited with code $LASTEXITCODE" }
+            Write-Success "Node.js uninstalled via choco."
+        } catch {
+            Write-MetisWarning "Node.js uninstall failed: $_"
+            $null = $script:FAILED_STEPS.Add(@{
+                Step      = "Node.js uninstall"
+                NextSteps = "Manually uninstall Node.js from: Settings > Apps > Node.js"
+            })
+        }
+    }
+}
+
+# Main execution
+# ===============
+if ($MyInvocation.InvocationName -ne '.') {
+Write-Host ""
+Write-Host "================================================" -ForegroundColor Cyan
+Write-Host "METIS Uninstaller"                               -ForegroundColor Yellow
+Write-Host "================================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "This will permanently remove:" -ForegroundColor White
+Write-Host "   METIS Windows service"                -ForegroundColor Yellow
+Write-Host "   METIS MongoDB user and database"      -ForegroundColor Yellow
+Write-Host "   $SERVICE_DATA_DIR"                    -ForegroundColor Yellow
+Write-Host "   $CREDENTIALS_FILE"                    -ForegroundColor Yellow
+Write-Host "   $CLI_WRAPPER"                         -ForegroundColor Yellow
+Write-Host "   $METIS_INSTALL_DIR"                   -ForegroundColor Yellow
+Write-Host ""
+Write-Host "MongoDB and Node.js will only be removed if you choose to below." -ForegroundColor White
+Write-Host ""
+Write-Host "This action is irreversible." -ForegroundColor Red
+Write-Host ""
+
+$confirm = Read-Host "Are you sure you want to uninstall METIS? (y/N)"
+if ($confirm -ne 'y' -and $confirm -ne 'Y') {
+    Write-MetisWarning "Uninstall cancelled."
+    exit 0
+}
+
+
+Write-Host ""
+Read-METISCredentials
+
+# Perform clean up of the METIS service.
+$service = Get-METISService
+
+if ($service) {
+    Stop-METISService $service
+    Remove-METISService
+} else {
+    Write-MetisWarning "METIS service not found. Skipping service stop and removal steps..."
+}
+
+Remove-MongoMetisData
+Remove-METISFiles
+Remove-METISCredentials
+Remove-METISCLIWrapper
+Remove-METISInstallDir
+
+Write-Host ""
+
+$mongoInstalled = (Get-MongoDBInstallEntry) -or (Get-Command mongod -ErrorAction SilentlyContinue)
+if (-not $mongoInstalled) {
+    Write-MetisWarning "MongoDB is not installed. Skipping MongoDB removal."
+} elseif (Get-MongoDBChocoPackages) {
+    $removeMongo = Read-Host "Remove MongoDB (choco uninstall mongodb, mongodb-shell, mongodb-database-tools)? (y/N)"
+    if ($removeMongo -eq 'y' -or $removeMongo -eq 'Y') {
+        Invoke-MongoDBUninstall
+        Write-Host ""
+    }
+} else {
+    Write-MetisWarning "MongoDB is installed but not via Chocolatey and cannot be removed automatically."
+    $null = $script:FAILED_STEPS.Add(@{
+        Step      = "MongoDB removal (skipped)"
+        NextSteps = "Manually uninstall MongoDB from: Settings > Apps > MongoDB, or via its own uninstaller"
+    })
+}
+
+$nodeInstalled = (Get-NodeJSUninstallEntry) -or (Get-Command node -ErrorAction SilentlyContinue)
+if (-not $nodeInstalled) {
+    Write-MetisWarning "Node.js is not installed. Skipping Node.js removal."
+} else {
+    $removeNode = Read-Host "Remove Node.js? (y/N)"
+    if ($removeNode -eq 'y' -or $removeNode -eq 'Y') {
+        Invoke-NodeJSUninstall
+        Write-Host ""
+    }
+}
+
+Write-Host ""
+Write-Host "================================================" -ForegroundColor Cyan
+Write-Host ""
+
+if ($script:FAILED_STEPS.Count -gt 0) {
+    Write-MetisError "Uninstall completed with errors."
+    Write-Host "The following steps failed and require manual action:" -ForegroundColor White
+    Write-Host ""
+    foreach ($failure in $script:FAILED_STEPS) {
+        Write-Host "  [!] $($failure.Step)" -ForegroundColor Red
+        Write-Host "      $($failure.NextSteps)" -ForegroundColor Yellow
+        Write-Host ""
+    }
+} else {
+    Write-Success "METIS has been successfully removed."
+    Write-Host ""
+}
+
+Write-Host "================================================" -ForegroundColor Cyan
+Write-Host ""
+
+} # end if not dot-sourced
+
+# NOTES
+# - This script requires Administrator privileges to run
+# - MongoDB and Node.js are left in place by default (may be used by other software)
+# - If MongoDB credentials were manually changed after install, the DB user drop step will fail gracefully

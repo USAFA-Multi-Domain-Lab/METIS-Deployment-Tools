@@ -15,7 +15,7 @@ reset='\e[0m'
 METIS_INSTALL_DIR="/opt/metis"
 
 CREDENTIALS_FILE="/root/.metis-credentials.txt"
-CREDENTIALS_EXIST=false
+CREDENTIALS_FOUND=false
 THIRD_PARTY_ADMIN=false
 
 echo -e "${green}[METIS] Starting installation and provisioning...${reset}"
@@ -43,7 +43,7 @@ generate_credentials() {
     ADMIN_PASS=$(grep 'MongoDB Admin Password:' "$CREDENTIALS_FILE" | awk -F': ' '{print $2}')
     METIS_USER=$(grep 'MongoDB Web Username:' "$CREDENTIALS_FILE" | awk -F': ' '{print $2}')
     METIS_PASS=$(grep 'MongoDB Web Password:' "$CREDENTIALS_FILE" | awk -F': ' '{print $2}')
-    CREDENTIALS_EXIST=true
+    CREDENTIALS_FOUND=true
   # Handle case where MongoDB was installed prior
   # to METIS installation.
   elif [[ "$auth_check" == *MongoServerError* ]]; then
@@ -198,7 +198,7 @@ setup_mongodb_auth() {
     sleep 7 # + 3 next iteration = 10 seconds.
   done
 
-  if [ "$CREDENTIALS_EXIST" = true ] || [ "$THIRD_PARTY_ADMIN" = true ]; then
+  if [ "$CREDENTIALS_FOUND" = true ] || [ "$THIRD_PARTY_ADMIN" = true ]; then
     echo -e "${yellow}[METIS] Skipping admin user creation; admin user already exist.${reset}"
     return
   fi
@@ -249,7 +249,7 @@ create_web_user() {
     sleep 7 # + 3 next iteration = 10 seconds.
   done
 
-  if [ "$CREDENTIALS_EXIST" = true ]; then
+  if [ "$CREDENTIALS_FOUND" = true ]; then
     echo -e "${yellow}[METIS] Skipping web server user creation; web server user already exist.${reset}"
     return
   fi
@@ -303,7 +303,7 @@ setup_metis() {
 
     # Clone the repository if it doesn't exist
     echo -e "${green}[METIS] Cloning METIS repository to $METIS_INSTALL_DIR...${reset}"
-    git clone https://github.com/USAFA-Multi-Domain-Lab/METIS.git "$METIS_INSTALL_DIR" || {
+    git clone https://github.com/USAFA-Multi-Domain-Lab/METIS-Modular-Effects-based-Transmitter-for-Integrated-Simulations.git "$METIS_INSTALL_DIR" || {
       echo "[ERROR] Failed to clone repository" >&2
       exit 1
     }
@@ -311,10 +311,17 @@ setup_metis() {
     cd "$METIS_INSTALL_DIR" || exit 1
   fi
 
-  # Make cli.sh executable and symlink to /usr/local/bin/metis
-  if [ -f "$METIS_INSTALL_DIR/cli.sh" ]; then
-    sudo chmod +x "$METIS_INSTALL_DIR/cli.sh"
-    sudo ln -sf "$METIS_INSTALL_DIR/cli.sh" /usr/local/bin/metis
+  # Create CLI wrapper script dynamically if cli/loader.cjs exists
+  if [ -f "$METIS_INSTALL_DIR/cli/loader.cjs" ]; then
+    echo -e "${green}[METIS] Creating CLI wrapper...${reset}"
+    sudo bash -c "cat > /usr/local/bin/metis" <<'WRAPPER'
+#!/bin/bash
+# METIS CLI wrapper - dynamically generated during installation
+node "METIS_INSTALL_DIR_PLACEHOLDER/cli/loader.cjs" "$@"
+WRAPPER
+    # Replace placeholder with actual installation directory
+    sudo sed -i "s|METIS_INSTALL_DIR_PLACEHOLDER|$METIS_INSTALL_DIR|g" /usr/local/bin/metis
+    sudo chmod +x /usr/local/bin/metis
     echo -e "${green}[METIS] CLI installed as 'metis' in PATH.${reset}"
   fi
 
@@ -370,7 +377,7 @@ EOL
 # Save credentials to a root-only file
 save_credentials() {
   # Skip saving if credentials already exist.
-  if [ "$CREDENTIALS_EXIST" = true ]; then
+  if [ "$CREDENTIALS_FOUND" = true ]; then
     echo -e "${yellow}[METIS] Credentials already exist. Skipping save.${reset}"
     return
   fi
@@ -425,3 +432,7 @@ echo -e "${green}[METIS] Installation and provisioning completed!${reset}"
 
 #Consideration -- security/lockdown of code
 # --Starting w/ disabled features: mongosh --nodb --eval "disableTelemetry()"
+
+
+# Installation command:
+# curl -o /tmp/ubuntu-24-installer.sh https://raw.githubusercontent.com/USAFA-Multi-Domain-Lab/METIS-Deployment-Tools/windows-installer-dev/ubuntu-24-installer.sh && chmod +x /tmp/ubuntu-24-installer.sh && sudo /tmp/ubuntu-24-installer.sh && rm /tmp/ubuntu-24-installer.sh
