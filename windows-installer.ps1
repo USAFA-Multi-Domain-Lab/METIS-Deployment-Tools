@@ -466,7 +466,7 @@ function Setup-METIS {
             $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
         }
 
-        git clone -b cli-dev https://github.com/USAFA-Multi-Domain-Lab/METIS-Modular-Effects-based-Transmitter-for-Integrated-Simulations.git $METIS_INSTALL_DIR
+        git clone https://github.com/USAFA-Multi-Domain-Lab/METIS-Modular-Effects-based-Transmitter-for-Integrated-Simulations.git $METIS_INSTALL_DIR
         if ($LASTEXITCODE -ne 0) {
             Write-MetisError "Failed to clone repository"
             exit 1
