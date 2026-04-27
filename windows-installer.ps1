@@ -84,6 +84,35 @@ function Generate-Credentials {
 }
 
 # Database Server Setup
+function Get-MongoDBConfigPath {
+    # 1. Ask the MongoDB service what config file it was started with
+    $svcKey = Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\MongoDB" -ErrorAction SilentlyContinue
+    if ($svcKey -and $svcKey.ImagePath -match '--config\s+"?([^"]+\.cfg)"?') {
+        $path = $Matches[1].Trim()
+        if (Test-Path $path) { return $path }
+    }
+
+    # 2. Scan all installed MongoDB Server versions under Program Files
+    $serverBase = "C:\Program Files\MongoDB\Server"
+    if (Test-Path $serverBase) {
+        $cfg = Get-ChildItem -Path $serverBase -Filter "mongod.cfg" -Recurse -ErrorAction SilentlyContinue |
+               Sort-Object { $_.FullName } -Descending |
+               Select-Object -First 1
+        if ($cfg) { return $cfg.FullName }
+    }
+
+    # 3. Check other common manual-install locations
+    $fallbacks = @(
+        "C:\mongodb\mongod.cfg",
+        "C:\data\mongod.cfg"
+    )
+    foreach ($f in $fallbacks) {
+        if (Test-Path $f) { return $f }
+    }
+
+    return $null
+}
+
 function Install-MongoDB {
     Write-Success "Installing MongoDB..."
 
@@ -127,11 +156,22 @@ function Install-MongoDB {
 
 function Configure-MongoDB {
     Write-Success "Configuring MongoDB..."
-    $configFile = "C:\Program Files\MongoDB\Server\8.0\bin\mongod.cfg"
+    $configFile = Get-MongoDBConfigPath
 
-    # Ensure the MongoDB configuration file exists
-    if (-not (Test-Path $configFile)) {
-        Write-MetisError "MongoDB configuration file not found: $configFile."
+    if (-not $configFile) {
+        Write-MetisError "MongoDB configuration file not found. Ensure MongoDB is installed and the service is registered before running this script."
+        exit 1
+    }
+
+    Write-Success "Found MongoDB configuration at $configFile."
+
+    # Prompt the user before making any changes
+    Write-MetisWarning "METIS needs to enable authorization in your MongoDB configuration."
+    Write-MetisWarning "This will modify: $configFile"
+    Write-MetisWarning "MongoDB will be restarted to apply the change."
+    $response = Read-Host "Proceed with modifying the MongoDB configuration? (Y/n)"
+    if ($response -ne "" -and $response -ne "Y" -and $response -ne "y") {
+        Write-MetisError "MongoDB configuration was not modified. METIS requires authorization to be enabled. Exiting."
         exit 1
     }
 
@@ -168,18 +208,24 @@ function Test-MongoDBInstallation {
     # Refresh PATH to ensure MongoDB binaries are accessible
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 
-    # Check if MongoDB data directory exists (read path from config rather than hardcoding)
-    $configFile = "C:\Program Files\MongoDB\Server\8.0\bin\mongod.cfg"
+    # Locate the MongoDB configuration file
+    $configFile = Get-MongoDBConfigPath
+    if (-not $configFile) {
+        Write-MetisError "MongoDB configuration file not found. Cannot verify installation."
+        exit 1
+    }
+
+    # Check if MongoDB data directory exists (read path from config)
     $dataDirConfig = Get-Content $configFile -Raw
     if ($dataDirConfig -match "dbPath:\s*(.+)") {
         $dataDir = $Matches[1].Trim()
     } else {
-        $dataDir = "C:\Program Files\MongoDB\Server\8.0\data"
+        $dataDir = $null
     }
-    if (Test-Path $dataDir) {
+    if ($dataDir -and (Test-Path $dataDir)) {
         Write-Success "MongoDB data directory found at $dataDir."
     } else {
-        Write-MetisWarning "MongoDB data directory not found at $dataDir."
+        Write-MetisWarning "MongoDB data directory not found or not specified in config."
     }
 
     # Verify configuration
@@ -191,8 +237,8 @@ function Test-MongoDBInstallation {
         exit 1
     }
 
-    # Check MongoDB binary presence - try direct path first
-    $mongodPath = "C:\Program Files\MongoDB\Server\8.0\bin\mongod.exe"
+    # Check MongoDB binary presence - derive bin dir from config location
+    $mongodPath = Join-Path (Split-Path $configFile) "mongod.exe"
     if (Test-Path $mongodPath) {
         Write-Success "MongoDB binary found at $mongodPath"
     } elseif (-not (Get-Command mongod -ErrorAction SilentlyContinue)) {
